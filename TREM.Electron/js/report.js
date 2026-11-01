@@ -59,54 +59,34 @@ TREM.Report = {
 			const fragment = new DocumentFragment();
 			const reports = Array.from(this.cache, ([k, v]) => v);
 
-			this.reportList = reports
-				.filter(v => this._filterHasNumber ? (v.earthquakeNo ? v.earthquakeNo % 1000 != 0 : v.no % 1000 != 0) : true)
-				.filter(v => this._filterHasReplay ? v.ID?.length : true)
-				.filter(v => this._filterMagnitude ? this._filterMagnitudeValue == -1 ? v.magnitudeValue == 0.0 : this._filterMagnitudeValue == 0 ? v.magnitudeValue < 1.0 : this._filterMagnitudeValue == 1 ? v.magnitudeValue < 2.0 : this._filterMagnitudeValue == 2 ? v.magnitudeValue < 3.0 : this._filterMagnitudeValue == 3 ? v.magnitudeValue < 4.0 : this._filterMagnitudeValue == 45 ? v.magnitudeValue < 4.5 : v.magnitudeValue >= 4.5 : true)
-				.filter(v => this._filterIntensity ? (v.data ? v.data[0]?.areaIntensity == this._filterIntensityValue : v.int == this._filterIntensityValue) : true)
-				.filter(v => this._filterTREM ? (v.location ? v.location.startsWith("地震資訊") : v.loc.startsWith("地震資訊")) : true)
-				.filter(v => this._filterCWA ? (v.identifier && v.identifier != null ? (v.identifier.startsWith("CWA") || v.identifier.startsWith("CWB")) : v.id.match(/-/g).length === 3) : true)
-				.filter(v => this._filterDate ? v.originTime.split(" ")[0] == this._filterDateValue : true)
-				.filter(v => this._filterMonth ? (v.originTime ? ((v.originTime.split(" ")[0].split("/")[0] + "/" + v.originTime.split(" ")[0].split("/")[1]) == this._filterMonthValue) : false) : false);
+			this.reportList = reports.filter((v) => this._matchesFilter(v));
 
 			for (const report of reports) {
-				// if (setting["exptech.key"] == "" && report.data[0].areaIntensity == 0) continue;
 				const element = this._createReportItem(report);
-				const report_date = report.originTime?.split(" ")[0];
 
-				if (!report_date) {
+				if (!report.originTime) {
 					log(report, 3, "loadReports", "Report");
 					continue;
 				}
 
-				if (report.mag) report.magnitudeValue = report.mag;
-
-				if (
-					(this._filterHasNumber && !(report.earthquakeNo ? report.earthquakeNo % 1000 : report.no % 1000))
-					|| (this._filterHasReplay && !(report.ID?.length))
-					|| (this._filterMagnitude && !(this._filterMagnitudeValue == -1 ? report.magnitudeValue == 0.0 : this._filterMagnitudeValue == 0 ? report.magnitudeValue < 1.0 : this._filterMagnitudeValue == 1 ? report.magnitudeValue < 2.0 : this._filterMagnitudeValue == 2 ? report.magnitudeValue < 3.0 : this._filterMagnitudeValue == 3 ? report.magnitudeValue < 4.0 : this._filterMagnitudeValue == 45 ? report.magnitudeValue < 4.5 : report.magnitudeValue >= 4.5))
-					|| (this._filterIntensity && !(report.data ? report.data[0]?.areaIntensity == this._filterIntensityValue : report.int == this._filterIntensityValue))
-					|| (this._filterTREM && !(report.location ? report.location.startsWith("地震資訊") : report.loc.startsWith("地震資訊")))
-					|| (this._filterCWA && !(report.identifier ? (report.identifier.startsWith("CWA") || report.identifier.startsWith("CWB")) : report.id.match(/-/g).length === 3))
-					|| (this._filterDate && !(report_date == this._filterDateValue))
-					|| (this._filterMonth && !((report_date.split("/")[0] + "/" + report_date.split("/")[1]) == this._filterMonthValue))) {
+				if (!this._matchesFilter(report)) {
 					element.classList.add("hide");
 					element.style.display = "none";
 				} else {
 					this._markers.push(L.marker(
-						[report.epicenterLat ?? report.lat, report.epicenterLon ?? report.lon],
+						[report.lat, report.lon],
 						{
 							icon: L.divIcon({
 								html      : TREM.Resources.icon.oldcross,
-								iconSize  : [(report.magnitudeValue * 4) ?? (report.mag * 4), (report.magnitudeValue * 4) ?? (report.mag * 4)],
-								className : `epicenterIcon ${report.data ? IntensityToClassString(report.data[0]?.areaIntensity) : IntensityToClassString(report.int)}`,
+								iconSize  : [report.mag * 4, report.mag * 4],
+								className : `epicenterIcon ${IntensityToClassString(report.int)}`,
 							}),
 							opacity      : (reports.length - reports.indexOf(report)) / reports.length,
 							zIndexOffset : 1000 + reports.length - reports.indexOf(report),
 						})
 						.on("click", () => {
 							TREM.set_report_overview = 0;
-							this.setView("report-overview", report.identifier ?? report.id);
+							this.setView("report-overview", report.id);
 						}));
 					this._markersGroup = L.featureGroup(this._markers).addTo(Maps.report);
 				}
@@ -121,38 +101,42 @@ TREM.Report = {
 	_createReportItem(report) {
 		const el = document.importNode(this._reportItemTemplate.content, true).querySelector(".report-list-item");
 
-		if (report.data) {
-			el.id = report.identifier;
-			el.className += ` ${IntensityToClassString(report.data[0]?.areaIntensity)}`;
-			el.querySelector(".report-list-item-location").innerText = report.location;
-			el.querySelector(".report-list-item-id").innerText = TREM.Localization.getString(report.location.startsWith("地震資訊") ? "Report_Title_Local" : (report.earthquakeNo % 1000 ? report.earthquakeNo : "Report_Title_Small"));
-			el.querySelector(".report-list-item-unit-Magnitude").innerText = (report.location.startsWith("地震資訊")) ? "d" : "L";
-			el.querySelector(".report-list-item-Magnitude").innerText = report.magnitudeValue == 0 ? "0.0" : report.magnitudeValue;
-			el.querySelector(".report-list-item-time").innerText = report.originTime.replace(/-/g, "/");
+		el.id = report.id;
+		el.className += ` ${IntensityToClassString(report.int)}`;
+		el.querySelector(".report-list-item-location").innerText = report.loc;
+		el.querySelector(".report-list-item-id").innerText = TREM.Localization.getString(report.loc.startsWith("地震資訊") ? "Report_Title_Local" : (report.no % 1000 ? report.no : "Report_Title_Small"));
+		el.querySelector(".report-list-item-unit-Magnitude").innerText = (report.loc.startsWith("地震資訊")) ? "d" : "L";
+		el.querySelector(".report-list-item-Magnitude").innerText = report.mag == 0 ? "0.0" : report.mag;
+		const time = new Date(new Date(report.time).toLocaleString("en-US", { hourCycle: "h23", timeZone: "Asia/Taipei" })).format("YYYY/MM/DD HH:mm:ss");
+		el.querySelector(".report-list-item-time").innerText = time;
 
-			el.querySelector("button").value = report.identifier;
-			el.querySelector("button").addEventListener("click", function() {
-				TREM.Report.setView("report-overview", this.value);
-			});
-			ripple(el.querySelector("button"));
-		} else {
-			el.id = report.id;
-			el.className += ` ${IntensityToClassString(report.int)}`;
-			el.querySelector(".report-list-item-location").innerText = report.loc;
-			el.querySelector(".report-list-item-id").innerText = TREM.Localization.getString(report.loc.startsWith("地震資訊") ? "Report_Title_Local" : (report.no % 1000 ? report.no : "Report_Title_Small"));
-			el.querySelector(".report-list-item-unit-Magnitude").innerText = (report.loc.startsWith("地震資訊")) ? "d" : "L";
-			el.querySelector(".report-list-item-Magnitude").innerText = report.mag == 0 ? "0.0" : report.mag;
-			const time = new Date(new Date(report.time).toLocaleString("en-US", { hourCycle: "h23", timeZone: "Asia/Taipei" })).format("YYYY/MM/DD HH:mm:ss");
-			el.querySelector(".report-list-item-time").innerText = time;
-
-			el.querySelector("button").value = report.id;
-			el.querySelector("button").addEventListener("click", function() {
-				TREM.Report.setView("report-overview", this.value);
-			});
-			ripple(el.querySelector("button"));
-		}
+		el.querySelector("button").value = report.id;
+		el.querySelector("button").addEventListener("click", function() {
+			TREM.Report.setView("report-overview", this.value);
+		});
+		ripple(el.querySelector("button"));
 
 		return el;
+	},
+
+	/**
+	 * 報告是否符合目前勾選的篩選條件
+	 * @param {EarthquakeReport} report
+	 */
+	_matchesFilter(report) {
+		const date = report.originTime?.split(" ")[0] ?? "";
+		const mag = report.mag;
+
+		return !(
+			(this._filterHasNumber && !(report.no % 1000))
+			|| (this._filterHasReplay && !(report.trem && report.trem != 1000))
+			|| (this._filterMagnitude && !(this._filterMagnitudeValue == -1 ? mag == 0.0 : this._filterMagnitudeValue == 0 ? mag < 1.0 : this._filterMagnitudeValue == 1 ? mag < 2.0 : this._filterMagnitudeValue == 2 ? mag < 3.0 : this._filterMagnitudeValue == 3 ? mag < 4.0 : this._filterMagnitudeValue == 45 ? mag < 4.5 : mag >= 4.5))
+			|| (this._filterIntensity && report.int != this._filterIntensityValue)
+			|| (this._filterTREM && !report.loc.startsWith("地震資訊"))
+			|| (this._filterCWA && report.id.match(/-/g).length !== 3)
+			|| (this._filterDate && date != this._filterDateValue)
+			|| (this._filterMonth && (date.split("/")[0] + "/" + date.split("/")[1]) != this._filterMonthValue)
+		);
 	},
 
 	/**
@@ -206,15 +190,7 @@ TREM.Report = {
 		this._filterDateValue = this._filterDateValue.replace(/-/g, "/");
 		this._filterMonthValue = this._filterMonthValue.replace(/-/g, "/");
 
-		this.reportList = Array.from(this.cache, ([k, v]) => v)
-			.filter(v => this._filterHasNumber ? (v.earthquakeNo ? v.earthquakeNo % 1000 != 0 : v.no % 1000 != 0) : true)
-			.filter(v => this._filterHasReplay ? v.ID?.length : true)
-			.filter(v => this._filterMagnitude ? this._filterMagnitudeValue == -1 ? v.magnitudeValue == 0.0 : this._filterMagnitudeValue == 0 ? v.magnitudeValue < 1.0 : this._filterMagnitudeValue == 1 ? v.magnitudeValue < 2.0 : this._filterMagnitudeValue == 2 ? v.magnitudeValue < 3.0 : this._filterMagnitudeValue == 3 ? v.magnitudeValue < 4.0 : this._filterMagnitudeValue == 45 ? v.magnitudeValue < 4.5 : v.magnitudeValue >= 4.5 : true)
-			.filter(v => this._filterIntensity ? (v.data ? v.data[0]?.areaIntensity == this._filterIntensityValue : v.int == this._filterIntensityValue) : true)
-			.filter(v => this._filterTREM ? (v.location ? v.location.startsWith("地震資訊") : v.loc.startsWith("地震資訊")) : true)
-			.filter(v => this._filterCWA ? (v.identifier ? (v.identifier.startsWith("CWA") || v.identifier.startsWith("CWB")) : v.id.match(/-/g).length === 3) : true)
-			.filter(v => this._filterDate ? v.originTime.split(" ")[0] == this._filterDateValue : true)
-			.filter(v => this._filterMonth ? (v.originTime.split(" ")[0].split("/")[0] + "/" + v.originTime.split(" ")[0].split("/")[1]) == this._filterMonthValue : true);
+		this.reportList = Array.from(this.cache, ([k, v]) => v).filter((v) => this._matchesFilter(v));
 
 		document.getElementById("report-detail-header-number").innerText = `共 ${this.reportList.length} 個`;
 		this._updateReports(oldlist, this.reportList);
@@ -295,21 +271,15 @@ TREM.Report = {
 		if (replay != 0) return;
 		changeView("main", "#mainView_btn");
 
-		// let list = [];
-
-		if (report.download) {
-			const oldtime = new Date(report.originTime.replace(/-/g, "/")).getTime();
-			ipcRenderer.send("testoldtime", oldtime);
-		}
+		if (report.download)
+			ipcRenderer.send("testoldtime", report.time);
 
 		if (report.trem)
 			ipcRenderer.send("testoldtimeEEW", report.trem);
 
-
-		if (!report.download || !report.ID.length || !report.trem) {
+		if (!report.download || !report.trem) {
 			this.replayHttp = true;
-			const oldtime = new Date(report.originTime.replace(/-/g, "/")).getTime();
-			ipcRenderer.send("testoldtimeEEW", oldtime);
+			ipcRenderer.send("testoldtimeEEW", report.time);
 		}
 	},
 	replaydownloader(id) {
@@ -319,7 +289,7 @@ TREM.Report = {
 		const report = this.cache.get(id);
 		console.debug(report);
 
-		let time = new Date(report.originTime.replace(/-/g, "/")).getTime() - 5000;
+		let time = report.time - 5000;
 		const time_hold = String(time / 1000);
 		const _end_time = time + 205000;
 
@@ -345,7 +315,7 @@ TREM.Report = {
 					if (document.getElementById("report-replay-downloader-text")) document.getElementById("report-replay-downloader-text").innerText = "下載完成!";
 					downloader_progress.style.display = "none";
 					report.download = true;
-					this.cache.set(report.identifier, report);
+					this.cache.set(report.id, report);
 					this.lock = false;
 					return;
 				}
@@ -456,7 +426,7 @@ TREM.Report = {
 	},
 	replaydownloaderrm(id) {
 		const report = this.cache.get(id);
-		const time = new Date(report.originTime.replace(/-/g, "/")).getTime() - 5000;
+		const time = report.time - 5000;
 		const time_hold = String(time / 1000);
 
 		fs.rm(path.join(path.join(app.getPath("userData"), "replay_data"), time_hold), { recursive: true }, () => {
@@ -465,7 +435,7 @@ TREM.Report = {
 			if (document.getElementById("report-replay-downloader-text")) document.getElementById("report-replay-downloader-text").innerText = "下載";
 			document.getElementById("downloader_progress").style.display = "none";
 			report.download = false;
-			this.cache.set(report.identifier, report);
+			this.cache.set(report.id, report);
 
 			if (this.lock) {
 				this.lock = false;
@@ -496,18 +466,16 @@ TREM.Report = {
 		const report = this.cache.get(id);
 		const string = [];
 
-		if (report.location)
-			string.push(`　　　　　　　　　　${report.location.startsWith("地震資訊") ? "地震資訊" : "中央氣象署"}地震測報中心　${TREM.Localization.getString(report.location.startsWith("地震資訊") ? "Report_Title_Local" : (report.earthquakeNo % 1000 ? `第${report.earthquakeNo.toString().slice(-3)}號有感地震報告` : "Report_Title_Small"))}`);
-		else if (report.loc)
-			string.push(`　　　　　　　　　　${report.loc.startsWith("地震資訊") ? "地震資訊" : "中央氣象署"}地震測報中心　${TREM.Localization.getString(report.loc.startsWith("地震資訊") ? "Report_Title_Local" : (report.no % 1000 ? `第${report.no.toString().slice(-3)}號有感地震報告` : "Report_Title_Small"))}`);
+		string.push(`　　　　　　　　　　${report.loc.startsWith("地震資訊") ? "地震資訊" : "中央氣象署"}地震測報中心　${TREM.Localization.getString(report.loc.startsWith("地震資訊") ? "Report_Title_Local" : (report.no % 1000 ? `第${report.no.toString().slice(-3)}號有感地震報告` : "Report_Title_Small"))}`);
 
-		const time = new Date(report.originTime);
+		// 臺灣時間的年月日時分秒
+		const time = new Date(new Date(report.time).toLocaleString("en-US", { hourCycle: "h23", timeZone: "Asia/Taipei" }));
 		string.push(`　　　　　　　　　　發　震　時　間： ${time.getFullYear() - 1911}年${(time.getMonth() + 1 < 10 ? " " : "") + (time.getMonth() + 1)}月${(time.getDate() < 10 ? " " : "") + time.getDate()}日${(time.getHours() < 10 ? " " : "") + time.getHours()}時${(time.getMinutes() < 10 ? " " : "") + time.getMinutes()}分${(time.getSeconds() < 10 ? " " : "") + time.getSeconds()}秒`);
-		string.push(`　　　　　　　　　　震　央　位　置： 北　緯　 ${report.epicenterLat ? report.epicenterLat.toFixed(2) : report.lat.toFixed(2)} °`);
-		string.push(`　　　　　　　　　　　　　　　　　　 東  經　${report.epicenterLon ? report.epicenterLon.toFixed(2) : report.lon.toFixed(2)} °`);
+		string.push(`　　　　　　　　　　震　央　位　置： 北　緯　 ${report.lat.toFixed(2)} °`);
+		string.push(`　　　　　　　　　　　　　　　　　　 東  經　${report.lon.toFixed(2)} °`);
 		string.push(`　　　　　　　　　　震　源　深　度：　 ${report.depth < 10 ? " " : ""}${report.depth.toFixed(1)}  公里`);
-		string.push(`　　　　　　　　　　芮　氏　規　模：　  ${report.magnitudeValue ? report.magnitudeValue.toFixed(1) : report.mag.toFixed(1)}`);
-		string.push(`　　　　　　　　　　相　對　位　置： ${report.location ?? report.loc}`);
+		string.push(`　　　　　　　　　　芮　氏　規　模：　  ${report.mag.toFixed(1)}`);
+		string.push(`　　　　　　　　　　相　對　位　置： ${report.loc}`);
 		string.push("");
 		string.push("                                 各 地 震 度 級");
 		string.push("");
@@ -516,16 +484,7 @@ TREM.Report = {
 		const int = (number) => `${IntensityI(number)}級`.replace("-級", "弱").replace("+級", "強");
 		const areas = [];
 
-		if (report.data)
-			for (const areaData of report.data) {
-				const areaString = [];
-				areaString.push(`${areaData.areaName}地區最大震度 ${int(areaData.areaIntensity)}`);
-				for (const stationData of areaData.eqStation)
-					areaString.push(`　　　${name(stationData.stationName)} ${int(stationData.stationIntensity)}　　　`);
-
-				areas.push(areaString);
-			}
-		else if (report.list)
+		if (report.list)
 			for (let index = 0, keys = Object.keys(report.list), n = keys.length; index < n; index++) {
 				const areaString = [];
 				areaString.push(`${keys[index]}地區最大震度 ${int(report.list[keys[index]].int)}`);
@@ -609,50 +568,27 @@ TREM.Report = {
 		this._clearMap();
 
 		for (const report of removed)
-			if (report.identifier)
-				this._hideItem(document.getElementById(report.identifier));
-			else if (report.id)
-				this._hideItem(document.getElementById(report.id));
+			this._hideItem(document.getElementById(report.id));
 
 		for (const report of added)
-			if (report.identifier)
-				this._showItem(document.getElementById(report.identifier));
-			else if (report.id)
-				this._showItem(document.getElementById(report.id));
+			this._showItem(document.getElementById(report.id));
 
 		for (const report of newlist) {
-			if (report.identifier)
-				this._markers.push(L.marker(
-					[report.epicenterLat, report.epicenterLon],
-					{
-						icon: L.divIcon({
-							html      : TREM.Resources.icon.oldcross,
-							iconSize  : [report.magnitudeValue * 4, report.magnitudeValue * 4],
-							className : `epicenterIcon ${IntensityToClassString(report.data[0]?.areaIntensity)}`,
-						}),
-						opacity      : (newlist.length - newlist.indexOf(report)) / newlist.length,
-						zIndexOffset : 1000 + this.cache.size - keys.indexOf(report.identifier),
-					})
-					.on("click", () => {
-						TREM.set_report_overview = 0;
-						this.setView("report-overview", report.identifier);
-					}));
-			else if (report.id)
-				this._markers.push(L.marker(
-					[report.lat, report.lon],
-					{
-						icon: L.divIcon({
-							html      : TREM.Resources.icon.oldcross,
-							iconSize  : [report.mag * 4, report.mag * 4],
-							className : `epicenterIcon ${IntensityToClassString(report.int)}`,
-						}),
-						opacity      : (newlist.length - newlist.indexOf(report)) / newlist.length,
-						zIndexOffset : 1000 + this.cache.size - keys.indexOf(report.id),
-					})
-					.on("click", () => {
-						TREM.set_report_overview = 0;
-						this.setView("report-overview", report.id);
-					}));
+			this._markers.push(L.marker(
+				[report.lat, report.lon],
+				{
+					icon: L.divIcon({
+						html      : TREM.Resources.icon.oldcross,
+						iconSize  : [report.mag * 4, report.mag * 4],
+						className : `epicenterIcon ${IntensityToClassString(report.int)}`,
+					}),
+					opacity      : (newlist.length - newlist.indexOf(report)) / newlist.length,
+					zIndexOffset : 1000 + this.cache.size - keys.indexOf(report.id),
+				})
+				.on("click", () => {
+					TREM.set_report_overview = 0;
+					this.setView("report-overview", report.id);
+				}));
 
 			this._markersGroup = L.featureGroup(this._markers).addTo(Maps.report);
 		}
@@ -708,145 +644,9 @@ TREM.Report = {
 
 		if (!report) return;
 
-		if (report.location) {
-			document.getElementById("report-overview-number").innerText = TREM.Localization.getString(report.location.startsWith("地震資訊") ? "Report_Title_Local" : (report.earthquakeNo % 1000 ? report.earthquakeNo : "Report_Title_Small"));
-			document.getElementById("report-overview-location").innerText = report.location;
-			const time = new Date((new Date(`${report.originTime} GMT+08:00`)).toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
-			document.getElementById("report-overview-time").innerText = report.originTime;
-			document.getElementById("report-overview-latitude").innerText = report.epicenterLat;
-			document.getElementById("report-overview-longitude").innerText = report.epicenterLon;
+		if (report.loc) {
+			document.getElementById("report-replay-downloader").value = report.id;
 
-			if (report.location.startsWith("地震資訊")) {
-				document.getElementById("report-overview-intensity").parentElement.parentElement.style.display = "none";
-			} else {
-				document.getElementById("report-overview-intensity").parentElement.parentElement.style.display = "";
-				const int = `${IntensityI(report.data[0]?.areaIntensity)}`.split("");
-				document.getElementById("report-overview-intensity").innerText = int[0];
-				document.getElementById("report-overview-intensity").className = (int[1] == "+") ? "strong"
-					: (int[1] == "-") ? "weak"
-						: "";
-			}
-
-			document.getElementById("report-overview-intensity-location").innerText = (report.location.startsWith("地震資訊")) ? "" : `${report.data[0].areaName} ${report.data[0].eqStation[0].stationName}`;
-			document.getElementById("report-overview-unit-magnitude").innerText = (report.location.startsWith("地震資訊")) ? "d" : "L";
-			document.getElementById("report-overview-magnitude").innerText = report.magnitudeValue == 0 ? "0.0" : report.magnitudeValue;
-			document.getElementById("report-overview-depth").innerText = report.depth;
-
-			// if (report.location.startsWith("地震資訊")) {
-			// 	document.getElementById("report-detail-copy").style.display = "none";
-			// } else {
-			// 	document.getElementById("report-detail-copy").style.display = "";
-			// 	document.getElementById("report-detail-copy").value = report.identifier;
-			// }
-			document.getElementById("report-detail-copy").style.display = "";
-			document.getElementById("report-detail-copy").value = report.identifier;
-
-			document.getElementById("report-replay").value = report.identifier;
-			document.getElementById("report-replay-downloader").value = report.identifier;
-
-			const timed = new Date(report.originTime.replace(/-/g, "/")).getTime() - 5000;
-			const time_hold = String(timed / 1000);
-			const _end_timed = (timed / 1000) + 305;
-
-			fs.access(`${path.join(path.join(app.getPath("userData"), "replay_data"), time_hold)}/${time_hold}.trem`, (err) => {
-				if (!err) {
-					if (document.getElementById("report-replay-downloader-icon")) document.getElementById("report-replay-downloader-icon").innerText = "download_done";
-
-					if (document.getElementById("report-replay-downloader-text")) document.getElementById("report-replay-downloader-text").innerText = "已下載!";
-					report.download = true;
-					this.cache.set(report.identifier, report);
-					fs.access(`${path.join(path.join(app.getPath("userData"), "replay_data"), time_hold)}/${_end_timed}.trem`, (err) => {
-						if (err) {
-							if (document.getElementById("report-replay-downloader-icon")) document.getElementById("report-replay-downloader-icon").innerText = "download";
-
-							if (document.getElementById("report-replay-downloader-text")) document.getElementById("report-replay-downloader-text").innerText = "下載中...";
-							report.download = false;
-							this.cache.set(report.identifier, report);
-						}
-					});
-				} else {
-					if (document.getElementById("report-replay-downloader-icon")) document.getElementById("report-replay-downloader-icon").innerText = "download";
-
-					if (document.getElementById("report-replay-downloader-text")) document.getElementById("report-replay-downloader-text").innerText = "下載";
-					report.download = false;
-					this.cache.set(report.identifier, report);
-				}
-			});
-
-			if (report.location.startsWith("地震資訊")) {
-				document.getElementById("report-cwb").style.display = "none";
-				document.getElementById("report-scweb").style.display = "none";
-			} else {
-				document.getElementById("report-cwb").style.display = "";
-				document.getElementById("report-scweb").style.display = "";
-
-				const cwb_code = "EQ"
-					+ report.earthquakeNo
-					+ "-"
-					+ (time.getMonth() + 1 < 10 ? "0" : "") + (time.getMonth() + 1)
-					+ (time.getDate() < 10 ? "0" : "") + time.getDate()
-					+ "-"
-					+ (time.getHours() < 10 ? "0" : "") + time.getHours()
-					+ (time.getMinutes() < 10 ? "0" : "") + time.getMinutes()
-					+ (time.getSeconds() < 10 ? "0" : "") + time.getSeconds();
-				document.getElementById("report-cwb").value = `https://www.cwa.gov.tw/V8/C/E/EQ/${cwb_code}.html`;
-
-				const scweb_code = ""
-					+ time.getFullYear()
-					+ (time.getMonth() + 1 < 10 ? "0" : "") + (time.getMonth() + 1)
-					+ (time.getDate() < 10 ? "0" : "") + time.getDate()
-					+ (time.getHours() < 10 ? "0" : "") + time.getHours()
-					+ (time.getMinutes() < 10 ? "0" : "") + time.getMinutes()
-					+ (time.getSeconds() < 10 ? "0" : "") + time.getSeconds()
-					+ (report.magnitudeValue * 10)
-					+ (report.earthquakeNo % 1000 ? report.earthquakeNo.toString().slice(-3) : "");
-				document.getElementById("report-scweb").value = `https://scweb.cwa.gov.tw/zh-tw/earthquake/details/${scweb_code}`;
-			}
-
-			let Station_i = 0;
-			this.report_station = {};
-
-			if (report.data.length)
-				for (const data of report.data)
-					for (const eqStation of data.eqStation) {
-						const station_tooltip = `<div>測站地名: ${data.areaName} ${eqStation.stationName}</div><div>距離震央: ${eqStation.distance} km</div><div>震度: ${IntensityI(eqStation.stationIntensity)}</div>`;
-						this.report_station[Station_i] = L.marker(
-							[eqStation.stationLat, eqStation.stationLon],
-							{
-								icon: L.divIcon({
-									iconSize  : [16, 16],
-									className : `map-intensity-icon ${IntensityToClassString(eqStation.stationIntensity)}`,
-								}),
-								zIndexOffset: 200 + eqStation.stationIntensity,
-							}).bindTooltip(station_tooltip, {
-							offset    : [8, 0],
-							permanent : false,
-							className : "report-cursor-tooltip",
-						});
-						this._markers.push(this.report_station[Station_i]);
-						Station_i += 1;
-					}
-
-			// console.log(this.report_station);
-			this.epicenterIcon = null;
-			this.epicenterIcon = L.marker(
-				[report.epicenterLat, report.epicenterLon],
-				{
-					icon: L.divIcon({
-						html      : TREM.Resources.icon.oldcross,
-						iconSize  : [32, 32],
-						className : "epicenterIcon",
-					}),
-					zIndexOffset: 5000,
-				});
-			this._markers.push(this.epicenterIcon);
-
-			this.report_trem_data = this._report_trem_data;
-			this.report_eew_data = this._report_eew_data;
-			this._report_Temp = report;
-			this._setuptremget(report);
-			this._setupeewget(report);
-		} else if (report.loc) {
 			if (!report.list) {
 				fetch(this.route.earthquakeReport(report.id))
 					.then((res) => {
@@ -938,12 +738,6 @@ TREM.Report = {
 								document.getElementById("report-overview-magnitude").innerText = report.mag == 0 ? "0.0" : report.mag;
 								document.getElementById("report-overview-depth").innerText = report.depth;
 
-								// if (report.location.startsWith("地震資訊")) {
-								// 	document.getElementById("report-detail-copy").style.display = "none";
-								// } else {
-								// 	document.getElementById("report-detail-copy").style.display = "";
-								// 	document.getElementById("report-detail-copy").value = report.identifier;
-								// }
 								document.getElementById("report-detail-copy").style.display = "";
 								document.getElementById("report-detail-copy").value = report.id;
 
@@ -1152,12 +946,6 @@ TREM.Report = {
 				document.getElementById("report-overview-magnitude").innerText = report.mag == 0 ? "0.0" : report.mag;
 				document.getElementById("report-overview-depth").innerText = report.depth;
 
-				// if (report.location.startsWith("地震資訊")) {
-				// 	document.getElementById("report-detail-copy").style.display = "none";
-				// } else {
-				// 	document.getElementById("report-detail-copy").style.display = "";
-				// 	document.getElementById("report-detail-copy").value = report.identifier;
-				// }
 				document.getElementById("report-detail-copy").style.display = "";
 				document.getElementById("report-detail-copy").value = report.id;
 
@@ -1283,7 +1071,7 @@ TREM.Report = {
 			for (let i = 0; i < res.length; i++) {
 				const eew = res[i].eq;
 				const latlng = L.latLng(eew.lat, eew.lon);
-				const latlng1 = L.latLng(report.epicenterLat ?? report.lat, report.epicenterLon ?? report.lon);
+				const latlng1 = L.latLng(report.lat, report.lon);
 				const distance = latlng.distanceTo(latlng1);
 				const eew_epicenterIcon = L.marker(
 					[(eew.lat == report.lat && eew.lon == report.lon) ? eew.lat + 0.03 : eew.lat, eew.lon],

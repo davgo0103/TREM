@@ -967,8 +967,6 @@ TREM.Old_database = {
 		}
 
 		if (unit == "intensity" && scale == "?") unit = "intensity" + " 資料有很大的機率無法顯示";
-		// el.id = report.identifier;
-		// el.className += ` ${IntensityToClassString(report.data[0]?.areaIntensity)}`;
 		el.querySelector(".report-list-item-location").innerText = unit;
 		el.querySelector(".report-list-item-id").innerText = number;
 		el.querySelector(".report-list-item-Magnitude").innerText = scale;
