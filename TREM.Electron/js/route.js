@@ -27,11 +27,6 @@ class Route {
    */
 
 	/**
-   * @typedef BaseETUrl
-   * @type {`https://api-1.exptech.${global_url}/api/v${version}/et/`}
-   */
-
-	/**
    * @typedef WSBaseUrl
    * @type {`wss://lb-${number}.exptech.${global_url}/websocket`}
    */
@@ -74,11 +69,6 @@ class Route {
 		const index = this.randomGlobalUrlNum();
 		this.random_global_url = this.global_url[index];
 		return this.random_global_url;
-	}
-
-	auto_api_run() {
-		this.random_api_num = this.randomAPINum();
-		return this.random_api_num;
 	}
 
 	/**
@@ -133,22 +123,6 @@ class Route {
 	randomApiBaseUrl(version = this.version) {
 		// api-N.exptech.dev 已下線，改用 api.core 的區域節點
 		return `https://${host("api.core.exptech.dev")}/api/v${ version }`;
-	}
-
-	/**
-   * @template {number} version
-   * @param {version} version
-   * @returns {BaseETUrl}
-   */
-	randomETBaseUrl(version = this.version) {
-		return `https://${host("api.core.exptech.dev")}/api/v${ version }/et/`;
-	}
-
-	/**
-    * @returns {BaseFileUrl}
-    */
-	tremStation(version = this.version) {
-		return this.randomApiBaseUrl(version) + "/trem/station";
 	}
 
 	/**
@@ -242,25 +216,6 @@ class Route {
 		return "https://lb.exptech.dev/ntp";
 	}
 
-	ApiBaseUrl(address = 1, version) {
-		return `https://${host("api.core.exptech.dev")}/api/v${ version }`;
-	}
-
-	tremList(address = 1, version) {
-		return this.ApiBaseUrl(address, version) + "/trem/list";
-	}
-
-	tremReport(address = 1, version, trem) {
-		return this.ApiBaseUrl(address, version) + "/trem/report/" + trem;
-	}
-
-	tremInfo(address = 1, version) {
-		return this.ApiBaseUrl(address, version) + "/trem/info";
-	}
-
-	tremMonth(address = 1, version, month) {
-		return this.ApiBaseUrl(address, version) + "/trem/month/" + month;
-	}
 }
 
 module.exports = Route;

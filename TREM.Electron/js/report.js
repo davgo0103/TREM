@@ -785,13 +785,6 @@ TREM.Report = {
 			document.getElementById("report-replay").value = report.identifier;
 			document.getElementById("report-replay-downloader").value = report.identifier;
 
-			if (report.trem) {
-				document.getElementById("report-TREM").value = `https://api.exptech.com.tw/file/trem_info.html?id=${report.trem}`;
-				document.getElementById("report-TREM").style.display = "";
-			} else {
-				document.getElementById("report-TREM").style.display = "none";
-			}
-
 			const timed = new Date(report.originTime.replace(/-/g, "/")).getTime() - 5000;
 			const time_hold = String(timed / 1000);
 			const _end_timed = (timed / 1000) + 305;
@@ -1341,56 +1334,8 @@ TREM.Report = {
 		}
 	},
 	_setupeewget(report) {
-		if (report.ID)
-			if (report.ID.length != 0)
-				if (!this.report_eew_data[report.ID[0]])
-					fetch(`https://exptech.com.tw/api/v1/earthquake/eew-info/${report.ID[0]}`)
-						.then((res) => {
-							if (res.ok) {
-								console.debug(res);
-
-								res.json().then(res1 => {
-									console.debug(res1);
-									this._report_eew_data[report.ID[0]] = res1;
-									this.report_eew_data[report.ID[0]] = this._report_eew_data[report.ID[0]];
-									storage.setItem("report_eew_data", this._report_eew_data);
-									this._setupeewmarker(report);
-								});
-							} else {
-								console.error(res);
-
-								switch (res.status) {
-									case 429: {
-										log(res.status, 3, "report_trem_info", "Report");
-										dump({ level: 2, message: res.status });
-										break;
-									}
-
-									case 404: {
-										log(res.status, 3, "report_trem_info", "Report");
-										dump({ level: 2, message: res.status });
-										break;
-									}
-
-									case 500: {
-										log(res.status, 3, "report_trem_info", "Report");
-										dump({ level: 2, message: res.status });
-										break;
-									}
-
-									default: break;
-								}
-
-								this._setupzoomPredict();
-							}
-						}).catch(err => {
-							console.log(err.message);
-							log(err, 3, "report_eew", "Report");
-							dump({ level: 2, message: err });
-							this._setupzoomPredict();
-						});
-				else
-					this._setupeewmarker(report);
+		// 舊的 eew-info API 已下線，只使用本機快取
+		this._setupeewmarker(report);
 	},
 	_setupeewmarker(report) {
 		if (this.report_eew_data[report.trem]) {
@@ -1421,119 +1366,9 @@ TREM.Report = {
 			}
 		}
 	},
-	_setuptremget(report) {
-		if (this.report_trem)
-			if (report.trem)
-				if (report.trem_list)
-					if (!this.report_trem_data[report.trem])
-						fetch("https://api-1.exptech.dev/api/v1/trem/info", {
-							method  : "POST",
-							headers : { "Content-Type": "application/json" },
-							body    : JSON.stringify({ list: JSON.parse(report.trem_list) }),
-						})
-							.then((res) => {
-								if (res.ok) {
-									// console.debug(res);
-
-									res.json().then(res1 => {
-										// console.debug(res1);
-										this._report_trem_data[report.trem] = res1;
-										this.report_trem_data[report.trem] = this._report_trem_data[report.trem];
-										storage.setItem("report_trem_data", this._report_trem_data);
-										this._setuptremmarker(report);
-									});
-								} else {
-									console.error(res);
-
-									switch (res.status) {
-										case 429: {
-											log(res.status, 3, "report_trem_info", "Report");
-											dump({ level: 2, message: res.status });
-											break;
-										}
-
-										case 404: {
-											log(res.status, 3, "report_trem_info", "Report");
-											dump({ level: 2, message: res.status });
-											break;
-										}
-
-										case 500: {
-											log(res.status, 3, "report_trem_info", "Report");
-											dump({ level: 2, message: res.status });
-											break;
-										}
-
-										default: break;
-									}
-
-									this._setupzoomPredict();
-								}
-							}).catch(err => {
-								console.log(err.message);
-								log(err, 3, "report_trem", "Report");
-								dump({ level: 2, message: err });
-								this._setupzoomPredict();
-							});
-					else
-						this._setuptremmarker(report);
-				else
-					this._setupzoomPredict();
-			else
-				this._setupzoomPredict();
-		else
-			this._setupzoomPredict();
-
-		if (this.report_tremeew && report.trem)
-			if (report.trem != 0 || report.trem != "")
-				if (!this.report_eew_data[report.trem])
-					fetch(`https://api-1.exptech.dev/api/v1/trem/report/${report.trem}`)
-						.then((res0) => {
-							if (res0.ok) {
-							// console.debug(res);
-								res0.json().then(res2 => {
-									// console.debug(res2);
-									this._report_eew_data[report.trem] = res2;
-									this.report_eew_data[report.trem] = this._report_eew_data[report.trem];
-									storage.setItem("report_eew_data", this._report_eew_data);
-									this._setupeewmarker(report);
-								});
-							} else {
-								console.error(res0);
-
-								switch (res0.status) {
-									case 429: {
-										log(res0.status, 3, "_get_trem_list", "Report");
-										dump({ level: 2, message: res0.status });
-										break;
-									}
-
-									case 404: {
-										log(res0.status, 3, "_get_trem_list", "Report");
-										dump({ level: 2, message: res0.status });
-										break;
-									}
-
-									case 500: {
-										log(res0.status, 3, "_get_trem_list", "Report");
-										dump({ level: 2, message: res0.status });
-										break;
-									}
-
-									default: break;
-								}
-							}
-						}).catch(err => {
-							console.log(err.message);
-							log(err, 3, "_get_trem_list", "Report");
-							dump({ level: 2, message: err });
-						});
-				else
-					this._setupeewmarker(report);
-			else
-				this._setupzoomPredict();
-		else
-			this._setupzoomPredict();
+	_setuptremget() {
+		// TREM 自家報告的 API（trem/info、trem/report）已下線
+		this._setupzoomPredict();
 	},
 	_setuptremmarker(report) {
 		this.report_trem_station = {};
@@ -1621,134 +1456,6 @@ TREM.Report = {
 			element.style.display = "block";
 		}
 	},
-
-	_get_trem_list() {
-		// fetch(this.route.tremList(1))
-		if (this._filterMonthValue) {
-			const monthValue = this._filterMonthValue.split("/")[0] + "-" + this._filterMonthValue.split("/")[1];
-			fetch(`https://api-1.exptech.dev/api/v1/trem/month/${monthValue}`)
-				.then((res0) => {
-					if (res0.ok) {
-					// console.debug(res);
-						res0.json().then(res2 => {
-							// console.debug(res2);
-							let _report_data = [];
-							_report_data = storage.getItem("report_data");
-
-							for (let i = 0; i < res2.length; i++)
-								if (this.cache.get(res2[i].Cwa_id)) {
-									const cache_a = this.cache.get(res2[i].Cwa_id);
-									cache_a.trem = res2[i].ID;
-									cache_a.trem_list = res2[i].List;
-									this.cache.set(res2[i].Cwa_id, cache_a);
-								}
-
-							for (let _i = 0; _i < _report_data.length; _i++)
-								if (_report_data[_i])
-									if (_report_data[_i].identifier)
-										if (this.cache.get(_report_data[_i].identifier))
-											_report_data[_i] = this.cache.get(_report_data[_i].identifier);
-										else
-											continue;
-									else if (_report_data[_i].id)
-										if (this.cache.get(_report_data[_i].id))
-											_report_data[_i] = this.cache.get(_report_data[_i].id);
-
-							storage.setItem("report_data", _report_data);
-						});
-					} else {
-						console.error(res0);
-
-						switch (res0.status) {
-							case 429: {
-								log(res0.status, 3, "_get_trem_list", "Report");
-								dump({ level: 2, message: res0.status });
-								break;
-							}
-
-							case 404: {
-								log(res0.status, 3, "_get_trem_list", "Report");
-								dump({ level: 2, message: res0.status });
-								break;
-							}
-
-							case 500: {
-								log(res0.status, 3, "_get_trem_list", "Report");
-								dump({ level: 2, message: res0.status });
-								break;
-							}
-
-							default: break;
-						}
-					}
-				}).catch(err => {
-					console.log(err.message);
-					log(err, 3, "_get_trem_list", "Report");
-					dump({ level: 2, message: err });
-				});
-		} else {
-			fetch("https://api-1.exptech.dev/api/v1/trem/list")
-				.then((res0) => {
-					if (res0.ok) {
-					// console.debug(res);
-						res0.json().then(res2 => {
-							// console.debug(res2);
-							let _report_data = [];
-							_report_data = storage.getItem("report_data");
-
-							for (let i = 0; i < res2.length; i++)
-								if (this.cache.get(res2[i].Cwa_id)) {
-									const cache_a = this.cache.get(res2[i].Cwa_id);
-									cache_a.trem = res2[i].ID;
-									cache_a.trem_list = res2[i].List;
-									this.cache.set(res2[i].Cwa_id, cache_a);
-								}
-
-							for (let _i = 0; _i < _report_data.length; _i++)
-								if (_report_data[_i])
-									if (_report_data[_i].identifier)
-										if (this.cache.get(_report_data[_i].identifier))
-											_report_data[_i] = this.cache.get(_report_data[_i].identifier);
-										else
-											continue;
-									else if (_report_data[_i].id)
-										if (this.cache.get(_report_data[_i].id))
-											_report_data[_i] = this.cache.get(_report_data[_i].id);
-
-							storage.setItem("report_data", _report_data);
-						});
-					} else {
-						console.error(res0);
-
-						switch (res0.status) {
-							case 429: {
-								log(res0.status, 3, "_get_trem_list", "Report");
-								dump({ level: 2, message: res0.status });
-								break;
-							}
-
-							case 404: {
-								log(res0.status, 3, "_get_trem_list", "Report");
-								dump({ level: 2, message: res0.status });
-								break;
-							}
-
-							case 500: {
-								log(res0.status, 3, "_get_trem_list", "Report");
-								dump({ level: 2, message: res0.status });
-								break;
-							}
-
-							default: break;
-						}
-					}
-				}).catch(err => {
-					console.log(err.message);
-					log(err, 3, "_get_trem_list", "Report");
-					dump({ level: 2, message: err });
-				});
-		}
-	},
 };
 
 TREM.on("viewChange", (oldView, newView) => {
@@ -1756,7 +1463,6 @@ TREM.on("viewChange", (oldView, newView) => {
 		case "report": {
 			TREM.Report.unloadReports();
 			TREM.Report._setup_api_key_verify();
-			TREM.Report._get_trem_list();
 			break;
 		}
 
@@ -1783,7 +1489,6 @@ TREM.on("viewChange", (oldView, newView) => {
 				TREM.Report._handleFilter("filterMonth", true);
 			}
 
-			TREM.Report._get_trem_list();
 
 			break;
 		}
