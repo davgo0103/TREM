@@ -6,6 +6,7 @@ const win = getCurrentWindow();
 TREM.Constants = require(path.resolve(__dirname, "../Constants/Constants.js"));
 
 const Route = require("../js/route.js");
+const { fetchStationList } = require("../js/station_list.js");
 const route = new Route();
 
 document.onreadystatechange = () => {
@@ -299,23 +300,7 @@ function init() {
 	})();
 
 	(async () => {
-		if (setting["Real-time.local"]) {
-			const station_data = require(path.resolve(__dirname, "../station.json"));
-			station_v2_run(station_data);
-		} else {
-			const station_data = await (await fetch("https://raw.githubusercontent.com/ExpTechTW/API/master/resource/station.json")).json();
-			station_v2_run(station_data);
-		}
-
-		if (!station) {
-			const station_data = await (await fetch("https://cdn.jsdelivr.net/gh/ExpTechTW/API@master/resource/station.json")).json();
-			station_v2_run(station_data);
-		}
-
-		if (!station) {
-			const station_data = await (await fetch(route.tremStation(1))).json();
-			station_v2_run(station_data);
-		}
+		station_v2_run((await fetchStationList()).data);
 
 		const el = document.getElementById("Real-time.station");
 		const el1 = document.getElementById("Real-time.station.1");

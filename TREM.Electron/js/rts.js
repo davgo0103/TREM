@@ -1,6 +1,7 @@
 const { getCurrentWindow } = require("@electron/remote");
 const echarts = require("echarts");
 const Route = require("../js/route.js");
+const { fetchStationList } = require("../js/station_list.js");
 const route = new Route();
 const win = getCurrentWindow();
 
@@ -246,23 +247,7 @@ const fetch_files = async () => {
 		// let res;
 		// const s = {};
 
-		if (app.Configuration.data["Real-time.local"]) {
-			const station_data = require(path.resolve(__dirname, "../station.json"));
-			station_v2_run(station_data);
-		} else {
-			const station_data = await (await fetch("https://raw.githubusercontent.com/ExpTechTW/API/master/resource/station.json")).json();
-			station_v2_run(station_data);
-		}
-
-		if (!data.stations) {
-			const station_data = await (await fetch("https://cdn.jsdelivr.net/gh/ExpTechTW/API@master/resource/station.json")).json();
-			station_v2_run(station_data);
-		}
-
-		if (!data.stations) {
-			const station_data = await (await fetch(route.tremStation(1))).json();
-			station_v2_run(station_data);
-		}
+		station_v2_run((await fetchStationList()).data);
 
 		// if (app.Configuration.data["Real-time.local"]) res = require(path.resolve(__dirname, "../station.json"));
 		// else res = await (await fetch("https://raw.githubusercontent.com/ExpTechTW/API/master/Json/earthquake/station.json")).json();

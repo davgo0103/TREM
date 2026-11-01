@@ -129,7 +129,8 @@ class Route {
    * @returns {BaseApiUrl}
    */
 	randomApiBaseUrl(version = this.version) {
-		return `https://api-${ this.random_api_num }.exptech.${this.random_global_url}/api/v${ version }`;
+		// api-N.exptech.dev 已下線，改用 api.core
+		return `https://api.core.exptech.${this.random_global_url}/api/v${ version }`;
 	}
 
 	/**
@@ -138,7 +139,7 @@ class Route {
    * @returns {BaseETUrl}
    */
 	randomETBaseUrl(version = this.version) {
-		return `https://api-1.exptech.${this.random_global_url}/api/v${ version }/et/`;
+		return `https://api.core.exptech.${this.random_global_url}/api/v${ version }/et/`;
 	}
 
 	/**
@@ -198,7 +199,8 @@ class Route {
    * @returns {`${BaseUrl}/trem/rts/${timestamp}`}
    */
 	rtsReplay(version, timestamp = 0) {
-		return this.randomApiBaseUrl(version) + `/trem/rts/${timestamp}`;
+		// 新版歷史資料為 v3（rts.v1 格式），時間單位為秒
+		return `https://api.core.exptech.${this.random_global_url}/api/v3/trem/rts/${Math.round(timestamp / 1000)}`;
 	}
 
 	/**
@@ -225,7 +227,8 @@ class Route {
    * @returns {`${BaseUrl}/eq/eew/${timestamp}`}
    */
 	eewReplay(version, timestamp) {
-		return this.randomApiBaseUrl(version) + `/eq/eew/${timestamp}`;
+		// 新版 API 的時間單位為秒
+		return this.randomApiBaseUrl(version) + `/eq/eew/${Math.round(timestamp / 1000)}`;
 	}
 
 	/**
@@ -238,7 +241,7 @@ class Route {
 	}
 
 	ApiBaseUrl(address = 1, version) {
-		return `https://api-${address}.exptech.${this.random_global_url}/api/v${ version }`;
+		return `https://api.core.exptech.${this.random_global_url}/api/v${ version }`;
 	}
 
 	tremList(address = 1, version) {

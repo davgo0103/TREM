@@ -411,7 +411,7 @@ TREM.Report = {
 										if (res0.ok) {
 											// console.debug(res);
 											res0.json().then(res2 => {
-												result.eew = res2;
+												result.eew = Array.isArray(res2) ? { eew: res2, time } : res2;
 												fs.writeFile(`${path.join(path.join(app.getPath("userData"), "replay_data"), time_hold)}/${gettime}.trem`, JSON.stringify(result), () => {
 													time += 1000;
 

@@ -10,6 +10,7 @@ const { setTimeout, setInterval, clearTimeout, clearInterval } = require("node:t
 // const axios = require("axios");
 const bytenode = require("bytenode");
 const Route = require("../js/route.js");
+const { fetchStationList, fetchLegacyStationList } = require("../js/station_list.js");
 const route = new Route();
 
 const JSZip = require("jszip");
@@ -127,7 +128,6 @@ let RMTpgaTime = 0;
 let type_Unit = "";
 let link_on = false;
 let p2p_mode_status = false;
-let rts_url = 0;
 let eew_url = 0;
 let HTTP = false;
 let NewReportTag = "";
@@ -1676,9 +1676,9 @@ function PGAMain() {
 				const ReplayTimeD = ReplayTimed - 1000;
 				const gettime = ReplayTimeD / 1000;
 				const userJSON = JSON.parse(fs.readFileSync(`${path.join(path.join(app.getPath("userData"), "replay_data"), String(replaydir))}/${gettime}.trem`).toString());
-				const ans_eew = userJSON.eew;
+				const ans_eew = Array.isArray(userJSON.eew) ? { eew: userJSON.eew } : userJSON.eew;
 				Ping = "🔁 cache";
-				handler(userJSON.rts);
+				handler(toRtsV2(userJSON.rts));
 
 				for (let i = 0; i < ans_eew.eew.length; i++) {
 					console.debug(ans_eew.eew[i]);
@@ -1854,7 +1854,7 @@ function PGAMain() {
 										Ping = "🔒";
 									} else {
 										Ping = `🔁 ${(Math.abs(NOW().getTime() - _t) / 1000).toFixed(1)}s`;
-										Response = res1;
+										Response = toRtsV2(res1);
 									}
 								});
 							} else {
@@ -1917,9 +1917,9 @@ function PGAMainbkup() {
 				const ReplayTimeD = ReplayTimed - 1000;
 				const gettime = ReplayTimeD / 1000;
 				const userJSON = JSON.parse(fs.readFileSync(`${path.join(path.join(app.getPath("userData"), "replay_data"), String(replaydir))}/${gettime}.trem`).toString());
-				const ans_eew = userJSON.eew;
+				const ans_eew = Array.isArray(userJSON.eew) ? { eew: userJSON.eew } : userJSON.eew;
 				Ping = "🔁 cache";
-				handler(userJSON.rts);
+				handler(toRtsV2(userJSON.rts));
 
 				for (let i = 0; i < ans_eew.eew.length; i++) {
 					console.debug(ans_eew.eew[i]);
@@ -2844,7 +2844,8 @@ function handler(Json) {
 
 				if (!IMAXdata[id]) IMAXdata[id] = {};
 
-				const Json_station_v = Json.station ? Json.station[id].v : Json[id].v;
+				const Json_station = Json.station ? Json.station[id] : Json[id];
+				const Json_station_v = Json_station.v ?? Json_station.pga;
 
 				if (!IMAXdata[id].pga) IMAXdata[id].pga = Json_station_v;
 				else if (IMAXdata[id].pga < Json_station_v) IMAXdata[id].pga = Json_station_v;
@@ -2866,7 +2867,8 @@ function handler(Json) {
 				const city = All[Index].loc.split(" ")[0];
 				const id = All[Index].uuid.split("-")[2];
 				const CPGA = (Idata[city] == undefined) ? 0 : Idata[city];
-				const Json_station_v = Json.station ? Json.station[id].v : Json[id].v;
+				const Json_station = Json.station ? Json.station[id] : Json[id];
+				const Json_station_v = Json_station.v ?? Json_station.pga;
 
 				if (Json_station_v > CPGA) {
 					if (Idata[city] == undefined) Idata[city] = {};
@@ -2895,126 +2897,87 @@ function handler(Json) {
 	document.getElementById("rt-list").replaceChildren(...list);
 }
 
+async function fetchStationData() {
+	const { data, source, error } = await fetchStationList();
+
+	if (error) {
+		log(error, 3, "Location", "fetchStationData");
+		dump({ level: 2, message: error, origin: "Location" });
+	}
+
+	if (source) {
+		log(`Get Station File from ${source}`, 1, "Location", "fetchStationData");
+		dump({ level: 0, message: `Get Station File from ${source}`, origin: "Location" });
+	}
+
+	return data;
+}
+
+// 設定裡的測站若是舊網路的 ID，改成新網路裡距離最近的測站
+async function migrateRealtimeStation() {
+	const keys = [
+		"Real-time.station",
+		"Real-time.station.1",
+		"Real-time.station.2",
+		"Real-time.station.3",
+		"Real-time.station.4",
+		"Real-time.station.5",
+	]
+		.filter((key) => setting[key] && !station[setting[key]]);
+
+	if (!keys.length) return;
+
+	const legacy = await fetchLegacyStationList();
+
+	for (const key of keys) {
+		const chosen = setting[key];
+		const old = legacy[String(chosen).split("-")[2]]?.info;
+
+		if (!old?.length) continue;
+
+		const at = old.reduce((a, b) => (new Date(b.time) > new Date(a.time) ? b : a));
+		let nearest = "";
+		let best = Infinity;
+
+		for (const uuid of Object.keys(station)) {
+			const km = Math.hypot((station[uuid].Lat - at.lat) * 111, (station[uuid].Long - at.lon) * 101);
+
+			if (km < best) {
+				best = km;
+				nearest = uuid;
+			}
+		}
+
+		if (!nearest) continue;
+
+		log(`${key} ${chosen} is not in the new list, using nearest ${nearest} (${best.toFixed(1)} km)`, 1, "Location", "migrateRealtimeStation");
+		setting[key] = nearest;
+		ipcRenderer.send("config:value", key, nearest);
+	}
+}
+
 async function fetchFiles() {
 	try {
 		Location = require(path.resolve(__dirname, "../Resources/locations.json"));
 		log("Get Location File", 1, "Location", "fetchFiles");
 		dump({ level: 0, message: "Get Location File", origin: "Location" });
 
-		if (setting["Real-time.local"]) {
-			station_data = require(path.resolve(__dirname, "../station.json"));
+		const data = await fetchStationData();
 
-			if (Object.keys(station_data).length !== 0) {
-				station_v2_run(station_data);
-			} else {
-				station_data = await (await fetch(route.tremStation(1))).json();
-
-				if (Object.keys(station_data).length !== 0)
-					station_v2_run(station_data);
-			}
-
-			log("Get Local Station File", 1, "Location", "fetchFiles");
-			dump({ level: 0, message: "Get Local Station File", origin: "Location" });
-		} else {
-			station_data = await (await fetch(route.tremStation(1))).json();
-
-			if (Object.keys(station_data).length !== 0)
-				station_v2_run(station_data);
-			log("Get Station File", 1, "Location", "fetchFiles");
-			dump({ level: 0, message: "Get Station File", origin: "Location" });
+		if (Object.keys(data).length === 0) {
+			// 抓不到時保留現有的測站資料，避免卡在載入畫面
+			log("All station sources failed", 3, "Location", "fetchFiles");
+			dump({ level: 2, message: "All station sources failed", origin: "Location" });
+			return;
 		}
 
-		if (Object.keys(station_data).length !== 0)
-			PGAMain();
-		else
-			await fetchFilesbackup();
+		station_data = data;
+		station_v2_run(station_data);
+		PGAMain();
+		migrateRealtimeStation().catch((err) => log(err, 3, "Location", "migrateRealtimeStation"));
 	} catch (err) {
 		log(err, 3, "Location", "fetchFiles");
 		dump({ level: 2, message: err, origin: "Location" });
-		route.auto_api_run();
-		await fetchFilesbackup();
-	}
-}
-
-async function fetchFilesbackup() {
-	try {
-		Location = require(path.resolve(__dirname, "../Resources/locations.json"));
-		log("Get Location backup File", 1, "Location", "fetchFilesbackup");
-		dump({ level: 0, message: "Get Location backup File", origin: "Location" });
-
-		if (setting["Real-time.local"]) {
-			station_data = require(path.resolve(__dirname, "../station.json"));
-
-			if (Object.keys(station_data).length !== 0) {
-				station_v2_run(station_data);
-			} else {
-				station_data = await (await fetch(route.tremStation(1))).json();
-
-				if (Object.keys(station_data).length !== 0)
-					station_v2_run(station_data);
-			}
-
-			log("Get Local Station File", 1, "Location", "fetchFiles");
-			dump({ level: 0, message: "Get Local Station File", origin: "Location" });
-		} else {
-			station_data = await (await fetch(route.tremStation(1))).json();
-
-			if (Object.keys(station_data).length !== 0)
-				station_v2_run(station_data);
-			log("Get Station backup File", 1, "Location", "fetchFilesbackup");
-			dump({ level: 0, message: "Get Station backup File", origin: "Location" });
-		}
-
-		if (Object.keys(station_data).length !== 0)
-			PGAMain();
-		else
-			await fetchFilesbackup0();
-	} catch (err) {
-		log(err, 3, "Location", "fetchFilesbackup");
-		dump({ level: 2, message: err, origin: "Location" });
-		route.auto_api_run();
-		await fetchFilesbackup0();
-	}
-}
-
-async function fetchFilesbackup0() {
-	try {
-		Location = require(path.resolve(__dirname, "../Resources/locations.json"));
-		log("Get Location backup File", 1, "Location", "fetchFilesbackup");
-		dump({ level: 0, message: "Get Location backup File", origin: "Location" });
-
-		if (setting["Real-time.local"]) {
-			station_data = require(path.resolve(__dirname, "../station.json"));
-
-			if (Object.keys(station_data).length !== 0) {
-				station_v2_run(station_data);
-			} else {
-				station_data = await (await fetch(route.tremStation(1))).json();
-
-				if (Object.keys(station_data).length !== 0)
-					station_v2_run(station_data);
-			}
-
-			log("Get Local Station File", 1, "Location", "fetchFiles");
-			dump({ level: 0, message: "Get Local Station File", origin: "Location" });
-		} else {
-			station_data = await (await fetch(route.tremStation(1))).json();
-
-			if (Object.keys(station_data).length !== 0)
-				station_v2_run(station_data);
-			log("Get Station backup File", 1, "Location", "fetchFilesbackup");
-			dump({ level: 0, message: "Get Station backup File", origin: "Location" });
-		}
-
-		if (Object.keys(station_data).length !== 0)
-			PGAMain();
-		else
-			await fetchFiles();
-	} catch (err) {
-		log(err, 3, "Location", "fetchFilesbackup");
-		dump({ level: 2, message: err, origin: "Location" });
-		route.auto_api_run();
-		await fetchFiles();
 	}
 }
 
@@ -4656,6 +4619,7 @@ ipcRenderer.on("readReplayFile", (event, filePaths) => {
 
 				const emitEvents = () => {
 					const current = replayData.shift();
+					current.rts = toRtsV2(current.rts);
 
 					replayTemp = current.rts.time;
 					handler(current.rts);
@@ -4913,67 +4877,181 @@ function getTOS() {
 			1);
 }
 
+// 舊的 /trem/rts HTTP 輪詢已下線，改用 SSE 即時推送（資料為 gzip + base64 的 JSON）
+const rts_sse_url = "https://api.lb.exptech.dev/api/v1/trem/sse?topics=trem.intensity.v1,trem.rts.v1&mode=live";
+let rts_sse = null;
+
+function decodeSSEText(data) {
+	if (/^\s*[{[<]/.test(data)) return data;
+
+	return require("node:zlib").gunzipSync(Buffer.from(data.replace(/\s+/g, ""), "base64")).toString();
+}
+
+function decodeSSEData(data) {
+	return JSON.parse(decodeSSEText(data));
+}
+
+// trem.intensity.v1 為 TREM XML（參考 TREM-Lite intensityV1.ts readIntensityXml），轉成舊版震度速報格式
+function readIntensityXml(xml) {
+	const LEVEL_CODES = [
+		"0",
+		"1",
+		"2",
+		"3",
+		"4",
+		"5-",
+		"5+",
+		"6-",
+		"6+",
+		"7",
+	];
+	const STATUS = { 發表: "issued", 更新: "updated", 最終: "final", 取消: "cancel" };
+	const head = (xml.match(/<Head>([\s\S]*?)<\/Head>/)?.[1] ?? "").replace(/<RelatedEewEvents>[\s\S]*?<\/RelatedEewEvents>/, "");
+	const stamp = head.match(/<EventID>(\d{14})<\/EventID>/)?.[1];
+	const serial = Number(head.match(/<Serial>(\d+)<\/Serial>/)?.[1]);
+
+	if (!stamp || !Number.isFinite(serial)) return null;
+
+	// EventID 為 +08:00 的 YYYYMMDDHHMMSS
+	const [
+		y,
+		mo,
+		d,
+		h,
+		mi,
+		s,
+	] = [
+		0,
+		4,
+		6,
+		8,
+		10,
+		12,
+	].map((at, n) => Number(stamp.slice(at, n ? at + 2 : 4)));
+	const area = {};
+
+	for (const [
+		, code,
+		towns,
+	] of xml.matchAll(/<Area level="([^"]+)">([\s\S]*?)<\/Area>/g)) {
+		const level = LEVEL_CODES.indexOf(code);
+
+		if (level < 1) continue;
+
+		area[level] = [...towns.matchAll(/<Town code="(\d+)"/g)].map((m) => Number(m[1]));
+	}
+
+	const infoType = head.match(/<InfoType>([^<]*)<\/InfoType>/)?.[1] ?? "";
+
+	return {
+		type      : "intensity",
+		author    : "trem",
+		id        : Date.UTC(y, mo - 1, d, h - 8, mi, s),
+		serial,
+		status    : STATUS[infoType] ?? infoType,
+		final     : infoType === "最終",
+		area,
+		timestamp : Date.now(),
+	};
+}
+
+// 浮點震度轉 0~9 級（同 TREM-Lite intensity_float_to_int）
+const rtsIntensityLevel = (i) => (i < 0 ? 0 : i < 4.5 ? Math.round(i) : i < 6.5 ? Math.floor(i * 2) - 4 : 9);
+
+function rtsBoxOf(lat, lon) {
+	for (const [key, corners] of Object.entries(TREM.Resources.area)) {
+		const lats = corners.map((c) => c[0]);
+		const lons = corners.map((c) => c[1]);
+
+		if (lat >= Math.min(...lats) && lat <= Math.max(...lats) && lon >= Math.min(...lons) && lon <= Math.max(...lons))
+			return key;
+	}
+
+	return null;
+}
+
+// rts.v1 只給每站的 i/pga/alert；舊版 v2 由伺服器算的 box、I、area 改在這裡用 alert 測站算出
+function rtsV1ToV2(ans) {
+	const stations = ans.stations ?? ans.station ?? {};
+	const uuidOf = {};
+
+	for (const uuid of Object.keys(station)) uuidOf[uuid.split("-")[2]] = uuid;
+
+	const box = {};
+	const I = [];
+	const area = new Set();
+
+	for (const id of Object.keys(stations)) {
+		const s = stations[id];
+		s.alert = s.alert === 1 || s.alert === "1" || s.alert === true;
+
+		if (!s.alert || typeof s.i !== "number") continue;
+
+		const uuid = uuidOf[id];
+
+		if (!uuid) continue;
+
+		const level = rtsIntensityLevel(s.i);
+		const key = rtsBoxOf(station[uuid].Lat, station[uuid].Long);
+
+		if (key !== null && (box[key] ?? -1) < level) box[key] = level;
+
+		I.push({ uuid, intensity: level });
+
+		if (station[uuid].area) area.add(station[uuid].area);
+	}
+
+	I.sort((a, b) => b.intensity - a.intensity);
+
+	return {
+		station : stations,
+		time    : ans.ts ?? ans.time,
+		Alert   : I.length > 0,
+		box,
+		I,
+		area    : [...area],
+	};
+}
+
+// 重播資料可能是新的 rts.v1 或舊的 v2 格式
+const toRtsV2 = (rts) => (rts?.stations ? rtsV1ToV2(rts) : rts);
+
 function freertsget(rts_key_verify_f = false) {
 	if (!rts_key_verify || rts_key_verify_f) {
-		if (rts_clock) {
-			clearInterval(rts_clock);
-			rts_clock = null;
-		}
+		if (rts_sse) rts_sse.close();
 
-		rts_clock = setInterval(async () => {
+		rts_sse = new EventSource(rts_sse_url);
+
+		rts_sse.addEventListener("info", (e) => {
+			log(`RTS SSE connected ${e.data}`, 1, "server", "rts-sse");
+		});
+
+		rts_sse.addEventListener("trem.rts.v1", (e) => {
 			try {
-				const controller = new AbortController();
-				const timer = setTimeout(() => controller.abort(), 1000);
-				await fetch(route.rts(2, 0, rts_url), { signal: controller.signal })
-					.then((ans0) => {
-						if (ans0.ok) {
-							ans0.json().then(ans => {
-								rts_ws_timestamp = new Date().getTime();
-
-								if ((rts_ws_timestamp - ans.time) >= 30000)
-									if (rts_url == 0)
-										rts_url = 1;
-									else
-										rts_url = 0;
-
-								ans.Time = rts_ws_timestamp;
-								rts_response = ans;
-								clearTimeout(timer);
-							}).catch((err) => {
-								if (rts_url == 0)
-									rts_url = 1;
-								else
-									rts_url = 0;
-								log(err, 3, "server", "rts-clock");
-								clearTimeout(timer);
-							});
-						} else {
-							if (rts_url == 0)
-								rts_url = 1;
-							else
-								rts_url = 0;
-							log(ans0.status, 3, "server", "rts-clock");
-							clearTimeout(timer);
-						}
-					}).catch((err) => {
-						if (rts_url == 0)
-							rts_url = 1;
-						else
-							rts_url = 0;
-						log(err, 3, "server", "rts-clock");
-						clearTimeout(timer);
-					});
+				const ans = rtsV1ToV2(decodeSSEData(e.data));
+				rts_ws_timestamp = Date.now();
+				ans.Time = rts_ws_timestamp;
+				rts_response = ans;
 			} catch (err) {
-				if (rts_url == 0)
-					rts_url = 1;
-				 else
-					rts_url = 0;
-				log(err, 3, "server", "rts-clock");
+				log(err, 3, "server", "rts-sse");
 			}
-		}, 1000);
-	} else if (rts_key_verify && rts_clock) {
-		clearInterval(rts_clock);
-		rts_clock = null;
+		});
+
+		rts_sse.addEventListener("trem.intensity.v1", (e) => {
+			try {
+				const report = readIntensityXml(decodeSSEText(e.data));
+
+				if (report) FCMdata(report, "sse");
+			} catch (err) {
+				log(err, 3, "server", "intensity-sse");
+			}
+		});
+
+		// EventSource 斷線後會依伺服器的 retry 自動重連
+		rts_sse.onerror = () => log("RTS SSE error, reconnecting", 2, "server", "rts-sse");
+	} else if (rts_key_verify && rts_sse) {
+		rts_sse.close();
+		rts_sse = null;
 	}
 }
 
