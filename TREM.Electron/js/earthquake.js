@@ -121,10 +121,7 @@ let stationnowall = 0;
 let RMTpgaTime = 0;
 let type_Unit = "";
 // 原本由 winserver.jar（已移除）宣告、仍被既有程式讀取的全域變數。
-// 舊 WebSocket 與 VIP 金鑰驗證已不存在，即時資料一律走 SSE。
-const rts_key_verify = false;
-const api_key_verify = false;
-const eew_key_verify = false;
+// 舊 WebSocket 與金鑰驗證已不存在，即時資料一律走 SSE。
 const rts_ws2_timestamp = 0;
 const rts_response_new = {};
 let rts_ws_timestamp = 0;
@@ -1867,7 +1864,7 @@ function handler(Json) {
 
 			// if (amount > current_station_data.MaxPGA) current_station_data.MaxPGA = amount;
 			now_f = now_format(now);
-			intensity = (rts_key_verify && Alert) ? rtsIntensityLevel(current_data.I)
+			intensity = (Alert && current_data.I != null) ? rtsIntensityLevel(current_data.I)
 				: (current_data.i >= 0) ? rtsIntensityLevel(current_data.i)
 					: (now_time - current_data.TS * 1000 > 5000) ? "NA"
 						: 0;
@@ -1942,7 +1939,7 @@ function handler(Json) {
 			}
 		}
 
-		if (current_data != undefined || (rts_key_verify && !setting["sleep.mode"]) || replay != 0) {
+		if (current_data != undefined || !setting["sleep.mode"] || replay != 0) {
 			if (!Station[keys[index]] && (!rts_remove_eew || Alert))
 				Station[keys[index]] = L.marker(
 					[current_station_data.Lat, keys[index].startsWith("H") ? current_station_data.Long + 0.0001 : current_station_data.Long],
@@ -3822,32 +3819,28 @@ function onSSEHeartbeat(text) {
 	if (ts) adoptServerTime(Number(ts) * 1000);
 }
 
-function freertsget(rts_key_verify_f = false) {
-	if (!rts_key_verify || rts_key_verify_f) {
-		trem_sse ??= new SSEStream({
-			label   : "trem",
-			url     : () => `https://api.lb.exptech.dev/api/v1/trem/sse?topics=${TREM_SSE_TOPICS}${rts_background ? "" : "&mode=live"}`,
-			onEvent : (event, data) => {
-				if (event === "info") {
-					log(`trem SSE connected ${data}`, 1, "server", "rts-sse");
-				} else if (event === "trem.rts.v1") {
-					const ans = rtsV1ToV2(decodeSSEData(data));
-					rts_ws_timestamp = Date.now();
-					ans.Time = rts_ws_timestamp;
-					rts_response = ans;
-				} else if (event === "trem.intensity.v1") {
-					const report = readIntensityXml(decodeSSEText(data));
+function freertsget() {
+	trem_sse ??= new SSEStream({
+		label   : "trem",
+		url     : () => `https://api.lb.exptech.dev/api/v1/trem/sse?topics=${TREM_SSE_TOPICS}${rts_background ? "" : "&mode=live"}`,
+		onEvent : (event, data) => {
+			if (event === "info") {
+				log(`trem SSE connected ${data}`, 1, "server", "rts-sse");
+			} else if (event === "trem.rts.v1") {
+				const ans = rtsV1ToV2(decodeSSEData(data));
+				rts_ws_timestamp = Date.now();
+				ans.Time = rts_ws_timestamp;
+				rts_response = ans;
+			} else if (event === "trem.intensity.v1") {
+				const report = readIntensityXml(decodeSSEText(data));
 
-					if (report && acceptIntensity(report)) FCMdata(report, "sse");
-				}
-			},
-			onComment : onSSEHeartbeat,
-			log       : (message, level) => log(message, level, "server", "rts-sse"),
-		});
-		trem_sse.start();
-	} else if (rts_key_verify && trem_sse) {
-		trem_sse.stop();
-	}
+				if (report && acceptIntensity(report)) FCMdata(report, "sse");
+			}
+		},
+		onComment : onSSEHeartbeat,
+		log       : (message, level) => log(message, level, "server", "rts-sse"),
+	});
+	trem_sse.start();
 }
 
 // 背景模式只在有觸發時才有資料；觸發結束後不會再送，需自行清掉最後一筆的觸發狀態
@@ -4576,7 +4569,7 @@ function FCMdata(json, Unit) {
 				}
 		} else if (!setting["report.onlycwachangeView"]) {
 			if (report.loc.startsWith("地震資訊")) {
-				if (api_key_verify && setting["report.getInfo"]) {
+				if (setting["report.getInfo"]) {
 					// if (!win.isFocused())
 					// 	new Notification("地震報告",
 					// 		{
@@ -4661,7 +4654,6 @@ function FCMdata(json, Unit) {
 
 		if (NOW().getTime() - json.time > 300_000) return;
 
-		if (json.type == "trem" && !eew_key_verify && replay == 0) return;
 
 		if (json.author) {
 			if (
@@ -6196,7 +6188,8 @@ const changeView = (args, el, event) => {
 	changeel.addClass("show");
 
 	if (changeel.attr("id") == "report") {
-		TREM.Report.api_key_verify = api_key_verify;
+		// 報告列表的「TREM」篩選只篩「地震資訊」報告，現在已沒有這類資料，維持隱藏
+		TREM.Report.api_key_verify = false;
 		TREM.Report.report_trem = setting["report.trem"];
 		TREM.Report.report_tremeew = setting["report.tremeew"];
 		TREM.Report.station = station;
