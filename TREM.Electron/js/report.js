@@ -59,37 +59,6 @@ TREM.Report = {
 			const fragment = new DocumentFragment();
 			const reports = Array.from(this.cache, ([k, v]) => v);
 
-			// for (const report of reports)
-			// 	if (!report.originTime) {
-			// 		const now_format = (time) => new Date(time.toLocaleString("en-US", { hourCycle: "h23", timeZone: "Asia/Taipei" })).format("YYYY/MM/DD HH:mm:ss");
-			// 		report.originTime = now_format(new Date(report.time));
-			// 		this.cache.set(report.id, report);
-
-			// 		let _report_data = [];
-			// 		_report_data = storage.getItem("report_data");
-
-			// 		for (let _i = 0; _i < _report_data.length; _i++)
-			// 			if (_report_data[_i].id)
-			// 				if (_report_data[_i].id === report.id)
-			// 					_report_data.splice(_i, 1);
-
-			// 		_report_data.push(report);
-
-			// 		for (let i = 0; i < _report_data.length - 1; i++)
-			// 			for (let _i = 0; _i < _report_data.length - 1; _i++) {
-			// 				const time_temp = _report_data[_i].originTime ? new Date(_report_data[_i].originTime).getTime() : _report_data[_i].time;
-			// 				const time_1_temp = _report_data[_i + 1].originTime ? new Date(_report_data[_i + 1].originTime).getTime() : _report_data[_i + 1].time;
-
-			// 				if (time_temp < time_1_temp) {
-			// 					const temp = _report_data[_i + 1];
-			// 					_report_data[_i + 1] = _report_data[_i];
-			// 					_report_data[_i] = temp;
-			// 				}
-			// 			}
-
-			// 		storage.setItem("report_data", _report_data);
-			// 	}
-
 			this.reportList = reports
 				.filter(v => this._filterHasNumber ? (v.earthquakeNo ? v.earthquakeNo % 1000 != 0 : v.no % 1000 != 0) : true)
 				.filter(v => this._filterHasReplay ? v.ID?.length : true)
@@ -332,16 +301,6 @@ TREM.Report = {
 			const oldtime = new Date(report.originTime.replace(/-/g, "/")).getTime();
 			ipcRenderer.send("testoldtime", oldtime);
 		}
-
-		// if (report.ID.length) {
-		// 	list = list.concat(report.ID);
-		// 	ipcRenderer.send("testEEW", list);
-		// }
-
-		// if (report.trem) {
-		// 	list = list.concat(report.trem);
-		// 	ipcRenderer.send("testEEW", list);
-		// }
 
 		if (report.trem)
 			ipcRenderer.send("testoldtimeEEW", report.trem);
@@ -988,16 +947,6 @@ TREM.Report = {
 								document.getElementById("report-detail-copy").style.display = "";
 								document.getElementById("report-detail-copy").value = report.id;
 
-								// document.getElementById("report-replay").value = report.id;
-								// document.getElementById("report-replay-downloader").value = report.id;
-
-								// if (report.trem) {
-								// 	document.getElementById("report-TREM").value = `https://exptech.com.tw/api/v1/file/trem-info.html?id=${report.trem}`;
-								// 	document.getElementById("report-TREM").style.display = "";
-								// } else {
-								// 	document.getElementById("report-TREM").style.display = "none";
-								// }
-
 								const timed = (report.time - 5000);
 								const time_hold = String(timed / 1000);
 								const _end_timed = (timed / 1000) + 305;
@@ -1212,16 +1161,6 @@ TREM.Report = {
 				document.getElementById("report-detail-copy").style.display = "";
 				document.getElementById("report-detail-copy").value = report.id;
 
-				// document.getElementById("report-replay").value = report.id;
-				// document.getElementById("report-replay-downloader").value = report.id;
-
-				// if (report.trem) {
-				// 	document.getElementById("report-TREM").value = `https://exptech.com.tw/api/v1/file/trem-info.html?id=${report.trem}`;
-				// 	document.getElementById("report-TREM").style.display = "";
-				// } else {
-				// 	document.getElementById("report-TREM").style.display = "none";
-				// }
-
 				const timed = (report.time - 5000);
 				const time_hold = String(timed / 1000);
 				const _end_timed = (timed / 1000) + 305;
@@ -1369,71 +1308,6 @@ TREM.Report = {
 	_setuptremget() {
 		// TREM 自家報告的 API（trem/info、trem/report）已下線
 		this._setupzoomPredict();
-	},
-	_setuptremmarker(report) {
-		this.report_trem_station = {};
-
-		if (this.report_trem_data[report.trem]) {
-			let Station_i0 = 0;
-			const res = this.report_trem_data[report.trem];
-
-			for (let index0 = 0; index0 < res.length; index0++) {
-				const info = res[index0];
-
-				for (let index = 0, keys = Object.keys(this.station), n = keys.length; index < n; index++) {
-					const uuid = keys[index];
-
-					if (info.id == uuid.split("-")[2]) {
-						const station_deta = this.station[uuid];
-						const latlng = L.latLng(station_deta.Lat, station_deta.Long);
-						const latlng1 = L.latLng(report.epicenterLat ?? report.lat, report.epicenterLon ?? report.lon);
-						const distance = latlng.distanceTo(latlng1);
-						const intensity = this.intensity_float_to_int(info.i);
-						const station_markers_tooltip = `<div>UUID: ${uuid}</div><div>鄉鎮: ${station_deta.Loc}</div><div>PGA: ${info.pga} gal</div><div>PGV: ${info.pgv} kine</div><div>最大計測震度: ${info.i}</div><div>長周期地震動(LPGM): ${info.lpgm}</div><div>距離震央: ${(distance / 1000).toFixed(2)} km</div>`;
-						this.report_trem_station[Station_i0] = L.marker(
-							[station_deta.Lat, uuid.startsWith("H") ? station_deta.Long + 0.005 : station_deta.Long],
-							{
-								icon: L.divIcon({
-									iconSize  : [16, 16],
-									className : `map-intensity-icon rt-icon trem ${intensity != 0 ? "pga" : ""} ${IntensityToClassString(intensity)}`,
-								}),
-								keyboard     : false,
-								zIndexOffset : 100 + info.intensity,
-							}).bindTooltip(station_markers_tooltip, {
-							offset    : [8, 0],
-							permanent : false,
-							className : "report-cursor-tooltip",
-						});
-
-						this._markers.push(this.report_trem_station[Station_i0]);
-						this._setupzoomPredict();
-						Station_i0 += 1;
-					}
-				}
-			}
-		} else {
-			this._setupzoomPredict();
-		}
-	},
-	intensity_float_to_int(float) {
-		return float < 0
-			? 0
-			: float < 4.5
-				? Math.round(float)
-				: float < 5
-					? 5
-					: float < 5.5
-						? 6
-						: float < 6
-							? 7
-							: float < 6.5
-								? 8
-								: 9;
-	},
-	speed_to_dis(sec, depth) {
-		for (let i = 1; i <= 1000; i++)
-			if (_speed(depth, i).Stime > sec) return i * 1000;
-		return 0;
 	},
 	_setupzoomPredict() {
 		this._markersGroup = L.featureGroup(this._markers).addTo(Maps.report);

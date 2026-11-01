@@ -208,28 +208,7 @@ const Real_time_station = () => {
 
 const fetch_files = async () => {
 	try {
-		// let res;
-		// const s = {};
-
 		station_v2_run((await fetchStationList()).data);
-
-		// if (app.Configuration.data["Real-time.local"]) res = require(path.resolve(__dirname, "../station.json"));
-		// else res = await (await fetch("https://raw.githubusercontent.com/ExpTechTW/API/master/Json/earthquake/station.json")).json();
-
-		// if (!res) res = await (await fetch("https://cdn.jsdelivr.net/gh/ExpTechTW/API@master/Json/earthquake/station.json")).json();
-
-		// if (!res) res = await (await fetch("https://exptech.com.tw/api/v1/file?path=/resource/station.json")).json();
-
-		// if (res) {
-		// 	for (let i = 0, k = Object.keys(res), n = k.length; i < n; i++) {
-		// 		const id = k[i];
-
-		// 		if (res[id].Long > 118)
-		// 			s[id.split("-")[2]] = { uuid: id, ...res[id] };
-		// 	}
-
-		// 	data.stations = s;
-		// }
 	} catch (error) {
 		console.warn("Failed to load station data!", error);
 	}

@@ -1,13 +1,10 @@
 /* eslint-disable no-undef */
 const { getCurrentWindow } = require("@electron/remote");
-// const axios = require("axios");
 const os = require("node:os");
 const win = getCurrentWindow();
 TREM.Constants = require(path.resolve(__dirname, "../Constants/Constants.js"));
 
-const Route = require("../js/route.js");
 const { fetchStationList } = require("../js/station_list.js");
-const route = new Route();
 
 document.onreadystatechange = () => {
 	if (document.readyState == "complete")
@@ -62,16 +59,6 @@ ipcRenderer.on("setting", (event, data) => {
 	if (document.getElementsByClassName("dialog").length)
 		closeDialog({ target: { id: "dialog" } });
 });
-
-// ipcRenderer.on("RTSUnlock", (event, Unlock) => {
-// 	if (Unlock) {
-// 		document.getElementById("RTSUnlock").classList.remove("hide");
-// 		document.getElementById("RTSUnlock1").classList.remove("hide");
-// 	} else {
-// 		document.getElementById("RTSUnlock").classList.add("hide");
-// 		document.getElementById("RTSUnlock1").classList.add("hide");
-// 	}
-// });
 
 ipcRenderer.on("settingError", (event, error) => {
 	is_setting_disabled = error;
@@ -383,13 +370,6 @@ function init() {
 	})();
 
 	// #endregion
-
-	// document.getElementById("client-key").addEventListener("click", () => {
-	// 	navigator.clipboard.writeText(`${setting["exptech.key"]}`).then(() => {
-	// 		console.debug(`${setting["exptech.key"]}`);
-	// 		console.debug("複製成功");
-	// 	});
-	// });
 
 	stream_mode(setting["stream.mode"]);
 }
@@ -919,24 +899,6 @@ function tsunamiopen(checked, name) {
 function send() {
 	let data = {};
 	let Unit_type = "test";
-	// const testtext_value = document.getElementById("testtext").value;
-
-	// if (testtext_value == "中央氣象局") Unit_type = "eew-cwb";
-
-	// if (testtext_value == "中央氣象署") Unit_type = "eew-cwb";
-
-	// if (testtext_value == "防災科学技術研究所") Unit_type = "eew-nied";
-
-	// if (testtext_value == "日本氣象廳") Unit_type = "eew-jma";
-
-	// if (testtext_value == "韓國氣象廳") Unit_type = "eew-kma";
-
-	// if (testtext_value == "福建省地震局") Unit_type = "eew-fjdzj";
-
-	// if (testtext_value == "四川省地震局") Unit_type = "eew-scdzj";
-
-	// if (testtext_value == "NSSPE") Unit_type = "trem-eew";
-
 	let unit_name = "";
 	let raw = {};
 
@@ -1187,87 +1149,6 @@ function send() {
 	+ ":" + now1.getMinutes()
 	+ ":" + now1.getSeconds();
 	document.getElementById("TimeStamp").value = Now2;
-
-	// axios.post("https://exptech.com.tw/api/v1/et", data)
-	// 	.then((response) => {
-	// 		if (response.ok) {
-	// 			if (response.data.response == "State Close") {
-	// 				document.getElementById("sendState").innerHTML = "設備未連接至伺服器";
-	// 				console.log("設備未連接至伺服器");
-	// 			} else if (response.data.response == "Device Not Found") {
-	// 				document.getElementById("sendState").innerHTML = "找不到此 UUID 的設備";
-	// 				console.log("找不到此 UUID 的設備");
-	// 			} else {
-	// 				document.getElementById("sendState").innerHTML = "發送成功，第" + data.Value.number + "報";
-	// 				console.log("發送成功 請刷新網頁");
-	// 			}
-
-	// 			document.getElementById("Version").value = Number(document.getElementById("Version").value) + 1;
-	// 			const utc = new Date();
-	// 			const NOW = new Date(utc.getTime() + utc.getTimezoneOffset() * 60 * 1000 + 60 * 60 * 8 * 1000);
-	// 			const now = new Date(NOW.getTime() - 20000);
-	// 			const Now1 = now.getFullYear()
-	// 			+ "-" + (now.getMonth() + 1)
-	// 			+ "-" + now.getDate()
-	// 			+ " " + now.getHours()
-	// 			+ ":" + now.getMinutes()
-	// 			+ ":" + now.getSeconds();
-	// 			document.getElementById("Time").value = Now1;
-	// 			const now1 = new Date(NOW.getTime());
-	// 			const Now2 = now1.getFullYear()
-	// 			+ "-" + (now1.getMonth() + 1)
-	// 			+ "-" + now1.getDate()
-	// 			+ " " + now1.getHours()
-	// 			+ ":" + now1.getMinutes()
-	// 			+ ":" + now1.getSeconds();
-	// 			document.getElementById("TimeStamp").value = Now2;
-	// 		} else {
-	// 			ipcRenderer.send("test_eew", data.Value);
-
-	// 			document.getElementById("Version").value = Number(document.getElementById("Version").value) + 1;
-	// 			const utc = new Date();
-	// 			const NOW = new Date(utc.getTime() + utc.getTimezoneOffset() * 60 * 1000 + 60 * 60 * 8 * 1000);
-	// 			const now = new Date(NOW.getTime() - 20000);
-	// 			const Now1 = now.getFullYear()
-	// 			+ "-" + (now.getMonth() + 1)
-	// 			+ "-" + now.getDate()
-	// 			+ " " + now.getHours()
-	// 			+ ":" + now.getMinutes()
-	// 			+ ":" + now.getSeconds();
-	// 			document.getElementById("Time").value = Now1;
-	// 			const now1 = new Date(NOW.getTime());
-	// 			const Now2 = now1.getFullYear()
-	// 			+ "-" + (now1.getMonth() + 1)
-	// 			+ "-" + now1.getDate()
-	// 			+ " " + now1.getHours()
-	// 			+ ":" + now1.getMinutes()
-	// 			+ ":" + now1.getSeconds();
-	// 			document.getElementById("TimeStamp").value = Now2;
-	// 		}
-	// 	}).catch((err) => {
-	// 		console.error(err);
-	// 		ipcRenderer.send("test_eew", data.Value);
-
-	// 		document.getElementById("Version").value = Number(document.getElementById("Version").value) + 1;
-	// 		const utc = new Date();
-	// 		const NOW = new Date(utc.getTime() + utc.getTimezoneOffset() * 60 * 1000 + 60 * 60 * 8 * 1000);
-	// 		const now = new Date(NOW.getTime() - 20000);
-	// 		const Now1 = now.getFullYear()
-	// 		+ "-" + (now.getMonth() + 1)
-	// 		+ "-" + now.getDate()
-	// 		+ " " + now.getHours()
-	// 		+ ":" + now.getMinutes()
-	// 		+ ":" + now.getSeconds();
-	// 		document.getElementById("Time").value = Now1;
-	// 		const now1 = new Date(NOW.getTime());
-	// 		const Now2 = now1.getFullYear()
-	// 		+ "-" + (now1.getMonth() + 1)
-	// 		+ "-" + now1.getDate()
-	// 		+ " " + now1.getHours()
-	// 		+ ":" + now1.getMinutes()
-	// 		+ ":" + now1.getSeconds();
-	// 		document.getElementById("TimeStamp").value = Now2;
-	// 	});
 }
 
 function resend() {
@@ -1335,7 +1216,6 @@ function resend() {
 
 function testEEW() {
 	ipcRenderer.send("testoldEEW");
-	ipcRenderer.send("closeChildWindow");
 }
 
 function testoldtimeEEW() {

@@ -27,11 +27,6 @@ class Route {
    */
 
 	/**
-   * @typedef WSBaseUrl
-   * @type {`wss://lb-${number}.exptech.${global_url}/websocket`}
-   */
-
-	/**
    * @constructor
    * @param {{version: version, key: key, random_max_num: random_max_num, random_ws_num: random_ws_num, ws_num: ws_num, ws_num_bk: ws_num_bk}} options
    */
@@ -58,11 +53,6 @@ class Route {
    */
 	setkey(key) {
 		this.key = key;
-	}
-
-	auto_run() {
-		this.random_ws_num = this.randomWSNum();
-		return this.random_ws_num;
 	}
 
 	auto_run_global_url() {
@@ -126,13 +116,6 @@ class Route {
 	}
 
 	/**
-   * @returns {WSBaseUrl}
-   */
-	randomWSBaseUrl() {
-		return `wss://lb-${ this.random_ws_num }.exptech.${this.random_global_url}/websocket`;
-	}
-
-	/**
    * @template {number} limit
    * @param {limit} [limit]
    * @returns {`${BaseUrl}/eq/report?limit=${limit}&key=${key}`}
@@ -191,7 +174,6 @@ class Route {
 			reurl = this.randomBaseUrl(version) + "/eq/eew";
 		else if (url == 1)
 			reurl = this.randomBaseUrl(version) + "/eq/eew?type=all";
-		// this.auto_run();
 		return reurl;
 	}
 

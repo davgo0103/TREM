@@ -5,9 +5,7 @@ require("leaflet-edgebuffer");
 require("leaflet-geojson-vt");
 require("expose-gc");
 const { BrowserWindow, shell } = require("@electron/remote");
-const { default: turfCircle } = require("@turf/circle");
 const { setTimeout, setInterval, clearTimeout, clearInterval } = require("node:timers");
-// const axios = require("axios");
 const bytenode = require("bytenode");
 const Route = require("../js/route.js");
 const { fetchStationList, fetchLegacyStationList } = require("../js/station_list.js");
@@ -46,7 +44,6 @@ let Stamp = 0;
 let rts_remove_eew = false;
 let UserLocationLat = 25.0421407;
 let UserLocationLon = 121.5198716;
-let arrive = "";
 const audio = { main: [], minor: [], main_lock: false, minor_lock: false };
 const EarthquakeList = {};
 let marker = null;
@@ -91,7 +88,6 @@ try {
 }
 
 let Location;
-let region;
 const station = {};
 let station_data = {};
 let palert_geojson = null;
@@ -121,15 +117,11 @@ let report_newest_check = Date.now();
 let map_move_back = false;
 TREM.set_report_overview = 0;
 let rtstation1 = "";
-let MaxIntensity1 = 0;
-let MaxIntensity2 = -1;
-let testEEWerror = false;
 TREM.win = BrowserWindow.fromId(process.env.window * 1);
 let stationnow = 0;
 let stationnowall = 0;
 let RMTpgaTime = 0;
 let type_Unit = "";
-let link_on = false;
 let p2p_mode_status = false;
 let HTTP = false;
 let NewReportTag = "";
@@ -694,87 +686,6 @@ TREM.MapArea2 = {
 	},
 };
 
-class WaveCircle {
-
-	/**
-	 * @param {string} id
-	 * @param {maplibregl.Map} map
-	 * @param {maplibregl.LngLatLike} lnglat
-	 * @param {number} radius
-	 * @param {boolean} alert
-	 * @param {maplibregl.LayerSpecification} layerOptions
-	 */
-	constructor(id, map, lnglat, radius, alert, layerOptions) {
-		this.map = map;
-		this.lnglat = lnglat;
-		this.radius = radius;
-		this.alert = alert;
-
-		/**
-		 * @type {maplibregl.GeoJSONSource}
-		 */
-		this.source = map.addSource(`Source_${id}`, {
-			type : "geojson",
-			data : turfCircle(lnglat, radius, { units: "meters" }),
-		}).getSource(`Source_${id}`);
-		this.layer = map.addLayer({
-			...layerOptions,
-			id     : `Layer_${id}`,
-			source : `Source_${id}`,
-		}).getLayer(`Layer_${id}`);
-
-		if (layerOptions.type == "fill")
-			this.layerBorder = map.addLayer({
-				...layerOptions,
-				type   : "line",
-				id     : `Layer_${id}_Border`,
-				source : `Source_${id}`,
-				paint  : {
-					"line-width" : 3,
-					"line-color" : layerOptions.paint["fill-color"],
-				},
-			}).getLayer(`Layer_${id}_Border`);
-	}
-
-	setLngLat(lnglat) {
-		if (this.lnglat[0] == lnglat[0] && this.lnglat[1] == lnglat[1]) return;
-		this.lnglat = lnglat;
-		this.source.setData(turfCircle(this.lnglat, this.radius, { units: "meters" }));
-	}
-
-	setRadius(radius) {
-		if (this.radius == radius) return;
-		this.radius = radius;
-		this.source.setData(turfCircle(this.lnglat, this.radius, { units: "meters" }));
-	}
-
-	setAlert(state) {
-		if (this.alert == state) return;
-		this.alert = state;
-		this.layer.setPaintProperty("fill-color", this.alert ? "#FF0000" : "#FFA500");
-		this.layerBorder.setPaintProperty("line-color", this.alert ? "#FF0000" : "#FFA500");
-	}
-
-	setStyle(id, value) {
-		if (this.layer.paint[id] == value) return;
-		this.layer.setPaintProperty(id, value);
-	}
-
-	remove() {
-		this.map.removeLayer(this.layer.id);
-		delete this.layer;
-
-		if (this.layerBorder) {
-			this.map.removeLayer(this.layerBorder.id);
-			delete this.layerBorder;
-		}
-
-		this.map.removeSource(this.source.id);
-		delete this.source;
-		return null;
-	}
-}
-
 class EEW {
 	constructor(data) {
 		this.#fromJson(data);
@@ -854,33 +765,7 @@ class EEW {
 	}
 }
 
-// function dynamicLoadJs(url, callback) {
-// 	const head = document.getElementsByTagName("footer")[0];
-// 	const script = document.createElement("script");
-// 	script.type = "text/javascript";
-// 	script.src = `../js/${url}`;
-
-// 	if (typeof (callback) == "function")
-// 		script.onload = script.onreadystatechange = function() {
-// 			if (!this.readyState || this.readyState === "loaded" || this.readyState === "complete") {
-// 				callback();
-// 				script.onload = script.onreadystatechange = null;
-// 			}
-// 		};
-
-// 	head.appendChild(script);
-// }
-
 // #region 初始化
-// const _unlock = fs.existsSync(path.join(app.getPath("userData"), "unlock.tmp"));
-
-// try {
-// 	dynamicLoadJs("server.js", () => {
-// 		console.log("OK");
-// 	});
-// } catch (err) {
-// 	console.error(err);
-// }
 
 const folder = path.join(app.getPath("userData"), "data");
 
@@ -1002,7 +887,6 @@ async function init() {
 					time1.innerText = `${now_f}`;
 
 					if (replaytestEEW != 0 && NOW().getTime() - replaytestEEW > 300_000) {
-						testEEWerror = false;
 						replaytestEEW = 0;
 						stopReplay();
 					}
@@ -1076,13 +960,12 @@ async function init() {
 				const memoryData = process.memoryUsage();
 				const rss = `${(((memoryData.rss / 1024) / 1024) / 1024).toFixed(2)} GB`;
 				// const warn = (Warn) ? "⚠️" : "";
-				const error = (testEEWerror) ? "❌" : "";
 				// const unlock = (Unlock) ? "⚡" : "";
 				$("#log").text(`${stationnow}/${stationnowall} | ${stationPercentage}% | LB(${ws_num},${route.random_global_url}) | ${rss}`);
 				$("#log1").text(`${stationnow}/${stationnowall} | ${stationPercentage}% | LB(${ws_num},${route.random_global_url}) | ${rss}`);
-				ipcRenderer.send("TREMIntensitylog2", { time: now_format(NOW()), log: `${stationnow}/${stationnowall} | ${stationPercentage}% | ${rss}`, ver: `${app.getVersion()} ${Ping} ${GetDataState} ${Warn} ${error}` });
-				$("#app-version").text(`${app.getVersion()} ${Ping} ${GetDataState} ${Warn} ${error}`);
-				$("#app-version1").text(`${app.getVersion()} ${Ping} ${GetDataState} ${Warn} ${error}`);
+				ipcRenderer.send("TREMIntensitylog2", { time: now_format(NOW()), log: `${stationnow}/${stationnowall} | ${stationPercentage}% | ${rss}`, ver: `${app.getVersion()} ${Ping} ${GetDataState} ${Warn}` });
+				$("#app-version").text(`${app.getVersion()} ${Ping} ${GetDataState} ${Warn}`);
+				$("#app-version1").text(`${app.getVersion()} ${Ping} ${GetDataState} ${Warn}`);
 			}, 500);
 
 		if (!Timers.tsunami)
@@ -1528,119 +1411,6 @@ async function init() {
 				Mapsmainfocus();
 			}
 	}, 500);
-	// const userJSON = require(path.resolve(__dirname, "../js/1669484541389.json"));
-	// TREM.Intensity.handle(userJSON);
-	// ipcRenderer.send("intensity-Notification", userJSON);
-	// const userJSON = require(path.resolve(__dirname, "../js/1681965624647.json"));
-	// TREM.MapIntensity.palert(userJSON);
-	// const userJSON1 = require(path.resolve(__dirname, "../js/1681965685264.json"));
-	// TREM.MapIntensity.palert(userJSON1);
-	// const userJSON2 = require(path.resolve(__dirname, "../js/1674419931238.json"));
-	// TREM.MapIntensity.palert(userJSON2);
-	// const userJSON2 = require(path.resolve(__dirname, "../js/1667356513251.json"));
-	// handler(userJSON2);
-	// const userJSON3 = require(path.resolve(__dirname, "../js/1674021360000.json"));
-	// const userJSON = {};
-	// const userJSON1_iconUrl = "../image/cross.png";
-	// const userJSON2_epicenterIcon = L.icon({
-	// 	userJSON1_iconUrl,
-	// 	iconSize  : [30, 30],
-	// 	className : "epicenterIcon",
-	// });
-	// if (TREM.Detector.webgl || TREM.MapRenderingEngine == "mapbox-gl")
-	// 	userJSON = new maplibregl.Marker(
-	// 		{
-	// 			element: $(`<img class="epicenterIcon" height="40" width="40" src="${userJSON1_iconUrl}"></img>`)[0],
-	// 		})
-	// 		.setLngLat([+userJSON3.lon, +userJSON3.lat])
-	// 		.addTo(Maps.main);
-	// else if (TREM.MapRenderingEngine == "leaflet")
-	// 	userJSON = L.marker([+userJSON3.lat, +userJSON3.lon],
-	// 		{
-	// 			icon: userJSON2_epicenterIcon,
-	// 		})
-	// 		.addTo(Maps.main);
-	// TREM.Earthquake.emit("eew", userJSON3);
-	// const userJSON = require(path.resolve(__dirname, "../js/1675531439780.json"));
-	// TREM.Earthquake.emit("trem-eq", userJSON);
-	// const userJSON1 = require(path.resolve(__dirname, "../js/1674382618201.json"));
-	// TREM.Earthquake.emit("trem-eq", userJSON1);
-	// const userJSON = require(path.resolve(__dirname, "../js/1669621178753.json"));
-	// FCMdata(userJSON, type = "websocket");
-	// const userJSON1 = require(path.resolve(__dirname, "../js/test.json"));
-	// TREM.MapArea2.setArea(userJSON1);
-	// setTimeout(() => {
-	// 	ipcRenderer.send("screenshotEEWI", {
-	// 		Function : "intensity",
-	// 		ID       : 1,
-	// 		Version  : 1,
-	// 		Time     : NOW().getTime(),
-	// 		Shot     : 1,
-	// 	});
-	// }, 1250);
-	// const userJSON = require(path.resolve(__dirname, "../js/123.json"));
-	// const userJSON1 = require(path.resolve(__dirname, "../js/2.json"));
-	// const userJSON2 = require(path.resolve(__dirname, "../js/1.json"));
-	// ipcRenderer.send("TREMIntensityhandle", userJSON);
-	// ipcRenderer.send("TREMIntensityhandle", userJSON1);
-	// ipcRenderer.send("TREMIntensityhandle", userJSON2);
-	// TREM.Intensity.handle(userJSON1);
-	// TREM.Intensity.handle(userJSON2);
-	// ipcRenderer.send("intensity-Notification", userJSON);
-	// ipcRenderer.send("intensity-Notification", userJSON1);
-	// const userJSON = require(path.resolve(__dirname, "../js/1688811850345.json"));
-	// TREM.PWS.addPWS(userJSON.raw);
-
-	// setTimeout(() => {
-	// 	const test_json = {
-	// 		type: 'eew',
-	// 		author: 'nied',
-	// 		id: '20240130001930',
-	// 		serial: 5,
-	// 		status: 0,
-	// 		final: 1,
-	// 		eq: {
-	// 		  time: 1706571830000,
-	// 		  lon: 142.4,
-	// 		  lat: 42,
-	// 		  depth: 80,
-	// 		  mag: 4.2,
-	// 		  loc: '浦河沖',
-	// 		  max: 0,
-	// 		  status: 0
-	// 		},
-	// 		timestamp: 1706571830385
-	// 	}
-	// 	const test_Unit = "websocket";
-	// 	FCMdata(test_json, test_Unit);
-	// }, 5000);
-
-	// const ans0 = [
-	// 	{
-	// 		author : "cwa",
-	// 		id     : "1130669",
-	// 		serial : 2,
-	// 		status : 0,
-	// 		final  : 0,
-	// 		eq     : {
-	// 			time  : 1714137688000,
-	// 			lon   : 121.52,
-	// 			lat   : 23.82,
-	// 			depth : 10,
-	// 			mag   : 5,
-	// 			loc   : "花蓮縣壽豐鄉",
-	// 			max   : 4,
-	// 		},
-	// 		time: 1714137688000,
-	// 	},
-	// ];
-
-	// if (ans0.length != 0)
-	// 	for (const e of ans0) {
-	// 		e.type = "eew";
-	// 		e.timestamp = Date.now();
-	// 		FCMdata(e, ServerType = "http");
-	// 	}
 
 	document.getElementById("rt-station-local").addEventListener("click", () => {
 		navigator.clipboard.writeText(document.getElementById("rt-station-local-id").innerText).then(() => {
@@ -1944,66 +1714,7 @@ function PGAMainbkup() {
 			const ReplayTime = (replay == 0) ? 0 : replay + (NOW().getTime() - replayT);
 
 			if (ReplayTime != 0 && TREM.Report.replayHttp) {
-				// const controller1 = new AbortController();
-				// setTimeout(() => {
-				// 	controller1.abort();
-				// }, 2500);
-				// axios({
-				// 	method : "get",
-				// 	url    : route.eewReplay(1, ReplayTime),
-				// }).then((res2) => {
-				// 	if (res2.ok) {
-				// 		res2.json().then(res3 => {
-				// 			if (controller1.signal.aborted || res3 == undefined)
-				// 				console.debug("bkup_api_eq_undefined");
-				// 			else
-				// 				for (let i = 0; i < res3.length; i++) {
-				// 					if (!EarthquakeList[res3[i].id]) {
-				// 						res3[i].replay_timestamp = ReplayTime;
-				// 						res3[i].replay_time = res3[i].time;
-				// 						res3[i].time = NOW().getTime() - (ReplayTime - res3[i].time);
-				// 						res3[i].timestamp = NOW().getTime();
-				// 						res3[i].type = "eew";
-				// 					} else {
-				// 						res3[i].replay_timestamp = ReplayTime;
-				// 						res3[i].replay_time = res3[i].time;
-				// 						res3[i].time = EarthquakeList[res3[i].id].Time;
-				// 						res3[i].timestamp = NOW().getTime();
-				// 						res3[i].type = "eew";
-				// 					}
-
-				// 					FCMdata(res3[i], "http");
-				// 				}
-				// 		});
-				// 	} else {
-				// 		console.error(res2);
-
-				// 		switch (res2.status) {
-				// 			case 429: {
-				// 				Ping = `❌ ${res2.status}`;
-				// 				break;
-				// 			}
-
-				// 			case 404: {
-				// 				Ping = `❌ ${res2.status}`;
-				// 				break;
-				// 			}
-
-				// 			case 500: {
-				// 				Ping = `❌ ${res2.status}`;
-				// 				break;
-				// 			}
-
-				// 			default: {
-				// 				Ping = `❌ ${res2.status}`;
-				// 				break;
-				// 			}
-				// 		}
-				// 	}
-				// }).catch((err) => {
-				// 	log(err, 3, "PGATimer", "PGAMainbkup");
-				// 	dump({ level: 2, message: err });
-				// });
+				// 舊版 axios 的 EEW 重播已移除，備援計時器不重播 EEW
 			}
 		}, 1_000);
 		Timers.rts_clock = setInterval(() => {
@@ -2090,48 +1801,6 @@ function PGAMainbkup() {
 						}
 					 else if (!replayD)
 						PGAMain();
-						// const url = route.rtsReplay(1, ReplayTime);
-						// // + "&key=" + setting["exptech.key"]
-						// axios({
-						// 	method : "get",
-						// 	url    : url,
-						// }).then((response) => {
-						// 	if (response.ok) {
-						// 		Ping = `🔁 ${(Math.abs(NOW().getTime() - _t) / 1000).toFixed(1)}s`;
-						// 		Response = response.data;
-						// 	} else {
-						// 		console.error(response);
-
-					// 		switch (response.status) {
-					// 			case 429: {
-					// 				Ping = `❌ ${response.status}`;
-					// 				break;
-					// 			}
-
-					// 			case 404: {
-					// 				Ping = `❌ ${response.status}`;
-					// 				break;
-					// 			}
-
-					// 			case 500: {
-					// 				Ping = `❌ ${response.status}`;
-					// 				break;
-					// 			}
-
-					// 			default: {
-					// 				Ping = `❌ ${response.status}`;
-					// 				break;
-					// 			}
-					// 		}
-
-					// 		PGAMain();
-					// 	}
-					// }).catch((err) => {
-					// 	log(err, 3, "PGATimer", "PGAMainbkup");
-					// 	dump({ level: 2, message: err });
-					// 	PGAMain();
-					// });
-
 
 					handler(Response);
 				} catch (err) {
@@ -2152,20 +1821,6 @@ function handler(Json) {
 	stationnowall = 0;
 	Response = {};
 	MAXPGA = { pga: 0, station: "NA", level: 0 };
-
-	// if (Unlock)
-	// 	if (replay != 0)
-	// 		ipcRenderer.send("RTSUnlock", !Unlock);
-	// 	else
-	// 		ipcRenderer.send("RTSUnlock", Unlock);
-	// 		// document.getElementById("rt-station").classList.remove("hide");
-	// 		// document.getElementById("rt-station").classList.add("left");
-	// 		// document.getElementById("rt-maxintensitynum").classList.remove("hide");
-	// else
-	// 	ipcRenderer.send("RTSUnlock", Unlock);
-	// 	// document.getElementById("rt-station").classList.add("hide");
-	// 	// document.getElementById("rt-station").classList.remove("left");
-	// 	// document.getElementById("rt-maxintensitynum").classList.add("hide");
 
 	const Station_rm = (Json_rm) => Object.keys(Station).filter(key => !Object.keys(Json_rm).includes(key));
 
@@ -2190,7 +1845,6 @@ function handler(Json) {
 
 	const station_time_json = JSON.parse(localStorage.stationtime);
 	let max_intensity = -1;
-	MaxIntensity1 = 0;
 	let stationnowindex = 0;
 	let target_count = 0;
 	const detection_location = Json.area ?? [];
@@ -2339,10 +1993,6 @@ function handler(Json) {
 				intensity = rtsIntensityLevel(current_data.i);
 				level_class = IntensityToClassString(intensity);
 			}
-
-			if (intensity > MaxIntensity1) MaxIntensity1 = intensity;
-
-			if (intensity > MaxIntensity2) MaxIntensity2 = intensity;
 
 			if (intensity != "NA") {
 				stationnowindex += 1;
@@ -2558,74 +2208,6 @@ function handler(Json) {
 				intensitytag = max_intensity;
 			}
 		}
-		//  else if (intensitytest > -1 && amount < 999) {
-		// 	if (uuid.split("-")[2] == "7363648")
-		// 		current_station_data.PGA = 7363648;
-		// 	else if (uuid.split("-")[2] == "13379360")
-		// 		current_station_data.PGA = 13379360;
-
-		// 	if ((detected_list[current_station_data.PGA]?.intensity ?? -1) < intensitytest)
-		// 		if (setting["Real-time.alert"] && alert_key_verify && storage.getItem("rts_alert")) {
-		// 			detected_list[current_station_data.PGA] ??= {
-		// 				intensity : intensitytest,
-		// 				time      : NOW().getTime(),
-		// 			};
-		// 			new Notification(`🐈 測站反應，${station[uuid].area}`, {
-		// 				body   : `${uuid}\nPGA: ${amount} gal 最大震度: ${IntensityI(intensitytest)}\n時間:${timeconvert(now).format("YYYY/MM/DD HH:mm:ss")}\n${station[uuid].Loc}`,
-		// 				icon   : "../TREM.ico",
-		// 				silent : win.isFocused(),
-		// 			});
-		// 			const _intensity = `${IntensityI(intensitytest)}級`;
-		// 			Json_temp[uuid.split("-")[2]].alert = true;
-		// 			Json_temp.Alert = true;
-
-		// 			if (speecd_use) {
-		// 				TREM.speech.speak({ text: `測站反應，${station[uuid].area}` });
-		// 				TREM.speech.speak({ text: `最大震度，${_intensity.replace("-級", "弱").replace("+級", "強")}` });
-		// 			}
-
-		// 			if ((detected_list[current_station_data.PGA].intensity ?? 0) < intensitytest)
-		// 				detected_list[current_station_data.PGA].intensity = intensitytest;
-
-		// 			if (Json_temp.area.length) Json_temp.area.push(station[uuid].area);
-		// 			else Json_temp.area = [station[uuid].area];
-
-		// 			TREM.MapArea2.setArea(Json_temp);
-
-		// 			setTimeout(() => {
-		// 				ipcRenderer.send("screenshotEEW", {
-		// 					Function : "station",
-		// 					ID       : 1,
-		// 					Version  : 1,
-		// 					Time     : NOW().getTime(),
-		// 					Shot     : 1,
-		// 				});
-		// 			}, 300);
-
-		// 			if (setting["Real-time.show"]) win.showInactive();
-
-		// 			if (setting["Real-time.cover"])
-		// 				if (!win.isFullScreen()) {
-		// 					win.setAlwaysOnTop(true);
-		// 					win.focus();
-		// 					win.setAlwaysOnTop(false);
-		// 				}
-
-		// 			if (current_data.a) level_list[uuid] = current_data.a;
-
-		// 			if (current_data.pga) level_list[uuid] = current_data.pga;
-		// 			target_count++;
-
-		// 			if (replay == 0) {
-		// 				TREM.MapIntensity.trem = true;
-		// 				TREM.MapIntensity.MaxI = intensitytest;
-		// 				Report = NOW().getTime();
-		// 				Report_GET();
-		// 			}
-		// 		}
-
-		// 	intensitytag = -1;
-		// }
 
 		if (MAXPGA.pga < amount && amount < 999 && Level != "NA") {
 			MAXPGA.pga = amount;
@@ -2637,16 +2219,6 @@ function handler(Json) {
 			MAXPGA.intensity = intensity;
 			MAXPGA.time = now;
 		}
-		// if (MaxIntensity1 > MAXPGA.intensity){
-		// 	MAXPGA.pga = amount;
-		// 	MAXPGA.station = keys[index];
-		// 	MAXPGA.level = Level;
-		// 	MAXPGA.lat = current_station_data.Lat;
-		// 	MAXPGA.long = current_station_data.Long;
-		// 	MAXPGA.loc = current_station_data.Loc;
-		// 	MAXPGA.intensity = MaxIntensity1;
-		// 	MAXPGA.time = new Date(Json_Time * 1000);
-		// }
 	}
 
 	localStorage.stationtime = JSON.stringify(station_time_json);
@@ -2695,7 +2267,6 @@ function handler(Json) {
 		// 			}, 300);
 		// 		}
 	} else {
-		MaxIntensity2 = -1;
 		level_list = {};
 		$("#level").text("");
 		$("#target").text("");
@@ -2897,7 +2468,6 @@ function handler(Json) {
 		}
 	}
 
-	// document.getElementById("rt-maxintensity").className = MaxPGA < 999 ? IntensityToClassString(MaxIntensity1) : "na";
 	document.getElementById("rt-list").replaceChildren(...list);
 }
 
@@ -4062,12 +3632,6 @@ function Report_GET() {
 		cacheReport(_report_data_GET_temp);
 	} else if (_report_data_GET.length != 0 && setting["report.getInfo"]) {
 		if (api_key_verify) {
-			// for (let i = 0; i < _report_data_GET.length; i++)
-			// 	if (_report_data_GET[i].location.startsWith("地震資訊"))
-			// 		getInfo = true;
-
-			// if (!getInfo) ReportGET();
-			// else if (getInfo) cacheReport(_report_data_GET);
 			cacheReport(_report_data_GET);
 		} else {
 			for (let i = 0; i < _report_data_GET.length; i++)
@@ -4572,9 +4136,6 @@ function openIntensityWindow() {
 	ipcRenderer.send("openIntensityWindow");
 	toggleNav(false);
 }
-// ipcRenderer.on("setting_btn_remove_hide", () => {
-// 	document.getElementById("setting_btn").classList.remove("hide");
-// });
 // #endregion
 
 // #region Number >> Intensity
@@ -5049,8 +4610,6 @@ const stopReplay = function() {
 		Report_GET();
 	}
 
-	if (link_on) link_on = false;
-
 	if (TREM.MapIntensity.isTriggered)
 		TREM.MapIntensity.clear();
 
@@ -5065,7 +4624,6 @@ const stopReplay = function() {
 	if (TREM.speech.speaking()) TREM.speech.cancel();
 
 	Mapsmainfocus();
-	testEEWerror = false;
 	unstopReplaybtn();
 	globalgc();
 };
@@ -5541,105 +5099,6 @@ ipcRenderer.on("testEEW", (event, list = []) => {
 
 	if (TREM.MapArea2.isTriggered)
 		TREM.MapArea2.clear();
-
-	// if (!list.length)
-	// 	setTimeout(() => {
-	// 		log("Start EEW Test", 1, "EEW", "testEEW");
-	// 		dump({ level: 0, message: "Start EEW Test", origin: "EEW" });
-
-	// 		const data = {
-	// 			uuid: `rts-TREM-${localStorage.UUID_rts}`,
-	// 		};
-
-	// 		log(`Timer status: ${TimerDesynced ? "Desynced" : "Synced"}`, 0, "Verbose", "testEEW");
-	// 		dump({ level: 3, message: `Timer status: ${TimerDesynced ? "Desynced" : "Synced"}`, origin: "Verbose" });
-	// 		axios.post(posturl + "replay", data)
-	// 			.then((res) => {
-	// 				if (res.ok) {
-	// 					console.debug(res);
-	// 					testEEWerror = false;
-	// 				} else {
-	// 					console.error(res);
-
-	// 					switch (res.status) {
-	// 						case 429: {
-	// 							log(res.status, 3, "testEEW", "replay");
-	// 							dump({ level: 2, message: res.status });
-	// 							break;
-	// 						}
-
-	// 						case 404: {
-	// 							log(res.status, 3, "testEEW", "replay");
-	// 							dump({ level: 2, message: res.status });
-	// 							break;
-	// 						}
-
-	// 						case 500: {
-	// 							log(res.status, 3, "testEEW", "replay");
-	// 							dump({ level: 2, message: res.status });
-	// 							break;
-	// 						}
-
-	// 						default: break;
-	// 					}
-	// 				}
-	// 			})
-	// 			.catch((error) => {
-	// 				testEEWerror = true;
-	// 				log(error, 3, "Verbose", "testEEW");
-	// 				dump({ level: 2, message: error, origin: "Verbose" });
-	// 			});
-	// 	}, 100);
-	// else
-	// 	for (let index = 0; index < list.length; index++)
-	// 		setTimeout(() => {
-	// 			log("Start list EEW Test", 1, "EEW", "testEEW");
-	// 			dump({ level: 0, message: "Start list EEW Test", origin: "EEW" });
-
-	// 			const data = {
-	// 				uuid : `rts-TREM-${localStorage.UUID_rts}`,
-	// 				id   : list[index],
-	// 			};
-
-	// 			log(`Timer status: ${TimerDesynced ? "Desynced" : "Synced"}`, 0, "Verbose", "testEEW");
-	// 			dump({ level: 3, message: `Timer status: ${TimerDesynced ? "Desynced" : "Synced"}`, origin: "Verbose" });
-	// 			axios.post(posturl + "replay", data)
-	// 				.then((res) => {
-	// 					if (res.ok) {
-	// 						console.debug(res);
-	// 						testEEWerror = false;
-	// 					} else {
-	// 						console.error(res);
-
-	// 						switch (res.status) {
-	// 							case 429: {
-	// 								log(res.status, 3, "testEEW", "replay");
-	// 								dump({ level: 2, message: res.status });
-	// 								break;
-	// 							}
-
-	// 							case 404: {
-	// 								log(res.status, 3, "testEEW", "replay");
-	// 								dump({ level: 2, message: res.status });
-	// 								break;
-	// 							}
-
-	// 							case 500: {
-	// 								log(res.status, 3, "testEEW", "replay");
-	// 								dump({ level: 2, message: res.status });
-	// 								break;
-	// 							}
-
-	// 							default: break;
-	// 						}
-	// 					}
-	// 				})
-	// 				.catch((error) => {
-	// 					testEEWerror = true;
-	// 					log(error, 3, "Verbose", "testEEW");
-	// 					dump({ level: 2, message: error, origin: "Verbose" });
-	// 				});
-	// 		}, 100);
 });
 
 ipcRenderer.on("settingError", (event, error) => {
@@ -6077,11 +5536,6 @@ TREM.Earthquake.on("eew", (data) => {
 	}
 
 	if ((data.type == "trem-eew" || data.author == "trem") && (data.lat == null && data.lon == null)) return;
-
-	// if (data.number == 1 && setting["link.on"] && !link_on) {
-	// 	link_on = true;
-	// 	ipcRenderer.send("linkpathtest", setting["link.path"], setting["link.name"]);
-	// }
 
 	if (!TREM.EEW.has(data.id))
 		TREM.EEW.set(data.id, new EEW(data));
@@ -6587,12 +6041,6 @@ TREM.Earthquake.on("eew", (data) => {
 
 	EEWshot = NOW().getTime() - 28500;
 	EEWshotC = 1;
-	// const _distance = [];
-	// for (let index = 0; index < 1002; index++)
-	// 	_distance[index] = _speed(data.depth, index);
-	// EarthquakeList[data.id].distance = _distance;
-
-	// if (data.type == "trem-eew" && data.number <= 3) EarthquakeList[data.id].distance = null;
 
 	main(data);
 
@@ -6813,7 +6261,6 @@ TREM.Earthquake.on("trem-eq", (data) => {
 				{
 					author: {
 						name     : data.final ? "地震檢知(最終報)" : "地震檢知",
-						url      : `https://exptech.com.tw/api/v1/file?path=/trem-report.html&id=${data.report_id}`,
 						icon_url : undefined,
 					},
 					description : description,
@@ -6865,7 +6312,6 @@ TREM.Earthquake.on("trem-eq", (data) => {
 				{
 					author: {
 						name     : data.final ? "地震檢知(最終報)" : "地震檢知",
-						url      : (data.alert) ? `https://exptech.com.tw/api/v1/file?path=/trem-report.html&id=${data.report_id}` : "",
 						icon_url : undefined,
 					},
 					description : description,
@@ -7038,24 +6484,6 @@ function main(data) {
 
 			kmP *= 1000;
 			km *= 1000;
-
-			// if (kmP === 0 && km === 0) {
-			// 	for (let index = 1; index < EarthquakeList[data.id].distance.length; index++)
-			// 		if (EarthquakeList[data.id].distance[index].Ptime > (NOW().getTime() - data.time) / 1000) {
-			// 			kmP = (index - 1) * 1000;
-
-			// 			if ((index - 1) / EarthquakeList[data.id].distance[index - 1].Ptime > wave.p) kmP = Math.floor(Math.sqrt(Math.pow((NOW().getTime() - data.time) * wave.p, 2) - Math.pow(data.depth * 1000, 2)));
-			// 			break;
-			// 		}
-
-			// 	for (let index = 1; index < EarthquakeList[data.id].distance.length; index++)
-			// 		if (EarthquakeList[data.id].distance[index].Stime > (NOW().getTime() - data.time) / 1000) {
-			// 			km = (index - 1) * 1000;
-
-			// 			if ((index - 1) / EarthquakeList[data.id].distance[index - 1].Stime > wave.s) km = Math.floor(Math.sqrt(Math.pow((NOW().getTime() - data.time) * wave.s, 2) - Math.pow(data.depth * 1000, 2)));
-			// 			break;
-			// 		}
-			// }
 
 			if (setting["shock.p"])
 				if (kmP > 0) {
@@ -7377,7 +6805,6 @@ function main(data) {
 			for (let index = 0, keys = Object.keys(eew), n = keys.length; index < n; index++)
 				clearInterval(eew[keys[index]].t);
 			audio.main = [];
-			arrive = "";
 			audio.minor = [];
 			eew = {};
 			EEWAlert = false;
@@ -7406,10 +6833,6 @@ function main(data) {
 
 function tsunami_color(color) {
 	return (color == "大於6公尺") ? "#B131FF" : (color == "3至6公尺") ? "red" : (color == "1至3公尺") ? "#FFEF29" : "#5CEE18";
-}
-
-function tsunami_color_int(color) {
-	return (color == "大於6公尺") ? 3 : (color == "3至6公尺") ? 2 : (color == "1至3公尺") ? 1 : 0;
 }
 
 function clear(ID, type) {

@@ -1,4 +1,4 @@
-const { BrowserWindow, Menu, Notification, app: TREM, Tray, ipcMain, nativeImage, shell, globalShortcut, dialog } = require("electron");
+const { BrowserWindow, Menu, Notification, app: TREM, Tray, ipcMain, nativeImage, shell, dialog } = require("electron");
 const Configuration = require("./Configuration/Configuration");
 const { autoUpdater } = require("electron-updater");
 const fs = require("fs");
@@ -20,12 +20,6 @@ autoUpdater.autoInstallOnAppQuit = true;
 autoUpdater.logger = logger;
 TREM.commandLine.appendSwitch("disable-http2");
 autoUpdater.requestHeaders = { "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" };
-
-// Object.defineProperty(TREM, 'isPackaged', {
-// 	get() {
-// 	  return true;
-// 	}
-// });
 
 /**
  * @type {Tray}
@@ -95,15 +89,8 @@ let RTSWindow = TREM.Window.get("rts");
  */
 let IntensityWindow = TREM.Window.get("Intensity");
 
-// const appFolder = path.dirname(
-// 	(process.env.APPDATA ? path.join(process.env.APPDATA, '..', 'Local', 'Programs', 'trem', 'trem') : process.env.APPDATA)
-// 	|| (process.platform == 'darwin' ? process.env.HOME + '/Library/Preferences' : process.env.APPDATA));
-// const runExe = path.resolve(appFolder, 'TREM.exe');
-// console.log(runExe);
-
 TREM.setLoginItemSettings({
 	openAtLogin : TREM.Configuration.data["windows.startup"],
-	// path		: runExe,
 	name        : "TREMV",
 	args        : TREM.Configuration.data["windows.minimize"] ? ["--start"] : [],
 });
@@ -121,7 +108,6 @@ function createWindow() {
 		show           : false,
 		icon           : "TREM.ico",
 		webPreferences : {
-			preload              : path.join(__dirname, "preload.js"),
 			nodeIntegration      : true,
 			contextIsolation     : false,
 			enableRemoteModule   : true,
@@ -177,7 +163,6 @@ function createSettingWindow() {
 		show           : false,
 		icon           : "TREM.ico",
 		webPreferences : {
-			preload              : path.join(__dirname, "preload.js"),
 			nodeIntegration      : true,
 			contextIsolation     : false,
 			enableRemoteModule   : true,
@@ -193,7 +178,6 @@ function createSettingWindow() {
 		setTimeout(() => SettingWindow.show(), 500);
 	});
 	SettingWindow.on("close", () => {
-		// ipcMain.emit("setting_btn_remove_hide");
 		SettingWindow = null;
 	});
 }
@@ -211,7 +195,6 @@ function createRTSWindow() {
 		show           : false,
 		icon           : "TREM.ico",
 		webPreferences : {
-			preload              : path.join(__dirname, "preload.js"),
 			nodeIntegration      : true,
 			contextIsolation     : false,
 			enableRemoteModule   : true,
@@ -227,7 +210,6 @@ function createRTSWindow() {
 		setTimeout(() => RTSWindow.show(), 500);
 	});
 	RTSWindow.on("close", () => {
-		// ipcMain.emit("setting_btn_remove_hide");
 		RTSWindow = null;
 	});
 }
@@ -248,7 +230,6 @@ function createIntensityWindow() {
 		show           : false,
 		icon           : "TREM.ico",
 		webPreferences : {
-			preload              : path.join(__dirname, "preload.js"),
 			nodeIntegration      : true,
 			contextIsolation     : false,
 			enableRemoteModule   : true,
@@ -356,48 +337,7 @@ TREM.on("ready", () => {
 			checkForUpdates();
 		}, update_time);
 	}
-
-	// globalShortcut.register("Tab", function() {
-	// 	console.log("Tab is pressed");
-	// })
-
-	// heliarun();
 });
-
-async function heliarun() {
-	try {
-		const { create_Helia, helia_unixfs, multiformats_CID, multiformats_base64 } = await import("./helia.mjs");
-		const helia = await create_Helia();
-		const libp2p = helia.libp2p;
-		const fsa = helia_unixfs(helia);
-		// const keychain = libp2p.keychain;
-		const id = libp2p.peerId;
-		const Multi = libp2p.getMultiaddrs();
-		// const keyInfo = await keychain.createKey("TREM", 'RSA', 4096);
-		// const peerId = await keychain.exportPeerId(keyInfo.name);
-		console.log(id);
-		console.log(Multi);
-		// console.log(peerId);
-		const bafyFoo = fsa.cat(multiformats_CID().parse("mAYAEEiCTojlxqRTl6svwqNJRVM2jCcPBxy+7mRTUfGDzy2gViA", multiformats_base64().decoder));
-		// console.log(bafyFoo);
-
-		setInterval(() => {
-			console.log(`peer: ${libp2p.getPeers().length}`);
-		}, 5000);
-
-		// libp2p.addEventListener('peer:discovery', (evt) => {
-		// 	console.log(`Discovered peer ${evt.detail.id.toString()} peer: ${libp2p.getPeers().length}`);
-		// });
-		// libp2p.addEventListener('peer:connect', (evt) => {
-		// 	console.log(`Connected to ${evt.detail.toString()} peer: ${libp2p.getPeers().length}`);
-		// });
-		// libp2p.addEventListener('peer:disconnect', (evt) => {
-		// 	console.log(`Disconnected from ${evt.detail.toString()} peer: ${libp2p.getPeers().length}`);
-		// });
-	} catch (err) {
-		console.error(err);
-	}
-}
 
 TREM.on("activate", () => {
 	if (MainWindow === null)
@@ -510,10 +450,6 @@ ipcMain.on("reloadpage", () => {
 		MainWindow.webContents.send("app-before-reload");
 });
 
-ipcMain.on("Mainreloadpage", () => {
-	MainWindow.reload();
-});
-
 ipcMain.on("openFileWindow", (event, arg) => {
 	dialog.showOpenDialog(MainWindow, {
 		properties: ["openFile"],
@@ -590,10 +526,6 @@ ipcMain.on("openexportFolder", (event, arg) => {
 	shell.openPath(path.join(TREM.getPath("userData"), "export"));
 });
 
-ipcMain.on("reset", (event, arg) => {
-	TREM.quit();
-});
-
 ipcMain.on("restart", () => {
 	restart();
 });
@@ -667,10 +599,6 @@ ipcMain.on("ReportTREM", () => {
 ipcMain.on("Olddatabase_report", (event, json) => {
 	MainWindow.webContents.send("Olddatabase_report", json);
 });
-
-// ipcMain.on("setting_btn_remove_hide", () => {
-// 	emitAllWindow("setting_btn_remove_hide");
-// });
 
 ipcMain.on("start", () => {
 	emitAllWindow("start");
