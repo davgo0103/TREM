@@ -11,6 +11,9 @@ const { setTimeout, setInterval, clearTimeout, clearInterval } = require("node:t
 const bytenode = require("bytenode");
 const Route = require("../js/route.js");
 const { fetchStationList, fetchLegacyStationList } = require("../js/station_list.js");
+const { SSEStream } = require("../js/sse.js");
+const { apiFetch, startProbing, setLogger: setEndpointLogger } = require("../js/endpoints.js");
+const { realNow, adoptServerTime, startClock } = require("../js/clock.js");
 const route = new Route();
 
 const JSZip = require("jszip");
@@ -115,6 +118,7 @@ let Ping = "N/A";
 let EEWAlert = false;
 let PGACancel = false;
 let report_get_timestamp = Date.now();
+let report_newest_check = Date.now();
 let map_move_back = false;
 TREM.set_report_overview = 0;
 let rtstation1 = "";
@@ -128,7 +132,6 @@ let RMTpgaTime = 0;
 let type_Unit = "";
 let link_on = false;
 let p2p_mode_status = false;
-let eew_url = 0;
 let HTTP = false;
 let NewReportTag = "";
 // #endregion
@@ -589,14 +592,14 @@ TREM.MapArea2 = {
 			const Alert = current_data?.alert ?? false;
 
 			if (Alert) {
-				max_intensity_list[current_station_data.area] ??= Math.round(current_data.i);
+				max_intensity_list[current_station_data.area] ??= rtsIntensityLevel(current_data.i);
 
-				if (max_intensity_list[current_station_data.area] < Math.round(current_data.i)) {
-					max_intensity_list[current_station_data.area] = Math.round(current_data.i);
-					this.cache.set(current_station_data.area, Math.round(current_data.i));
+				if (max_intensity_list[current_station_data.area] < rtsIntensityLevel(current_data.i)) {
+					max_intensity_list[current_station_data.area] = rtsIntensityLevel(current_data.i);
+					this.cache.set(current_station_data.area, rtsIntensityLevel(current_data.i));
 				} else if (!max_intensity_list[current_station_data.area]) {
-					max_intensity_list[current_station_data.area] = Math.round(current_data.i);
-					this.cache.set(current_station_data.area, Math.round(current_data.i));
+					max_intensity_list[current_station_data.area] = rtsIntensityLevel(current_data.i);
+					this.cache.set(current_station_data.area, rtsIntensityLevel(current_data.i));
 				} else {
 					this.cache.set(current_station_data.area, max_intensity_list[current_station_data.area]);
 				}
@@ -1100,11 +1103,13 @@ async function init() {
 
 						globalgc();
 					}
-				} else
-					if (Date.now() - report_get_timestamp > 180_000) {
-						ReportGET();
-						globalgc();
-					}
+				} else if (Date.now() - report_get_timestamp > 600_000) {
+					ReportGET();
+					globalgc();
+				} else if (Date.now() - report_newest_check > 60_000) {
+					report_newest_check = Date.now();
+					checkNewestReport();
+				}
 
 				if (ReportTag != 0 && NOW().getTime() - ReportTag > 30_000) {
 					console.debug("ReportTag end: ", NOW().getTime());
@@ -1412,7 +1417,7 @@ async function init() {
 		await fetchFiles();
 
 		if (!Timers.fetchFiles)
-			Timers.fetchFiles = setInterval(fetchFiles, 10 * 60 * 1000);
+			Timers.fetchFiles = setInterval(fetchFiles, 5 * 60 * 1000);
 	})().catch(e => {
 		log(e, 3, "Files", "init");
 		dump({ level: 2, message: e });
@@ -2306,8 +2311,8 @@ function handler(Json) {
 
 			// if (amount > current_station_data.MaxPGA) current_station_data.MaxPGA = amount;
 			now_f = now_format(now);
-			intensity = (rts_key_verify && Alert) ? Math.round(current_data.I)
-				: (current_data.i >= 0) ? Math.round(current_data.i)
+			intensity = (rts_key_verify && Alert) ? rtsIntensityLevel(current_data.I)
+				: (current_data.i >= 0) ? rtsIntensityLevel(current_data.i)
 					: (now_time - current_data.TS * 1000 > 5000) ? "NA"
 						: 0;
 			// : (amount >= 800) ? 9
@@ -2320,7 +2325,7 @@ function handler(Json) {
 			// 							: (amount >= 5) ? 2
 			// 								: (amount >= 2.2) ? 1
 			// 									: 0;
-			intensitytest = (current_data.i) ? Math.round(current_data.i) : -5;
+			intensitytest = (current_data.i) ? rtsIntensityLevel(current_data.i) : -5;
 			size = (intensity == 0 || intensity == "NA" || amount == 999 || !Alert) ? 8 : 16;
 			level_class = (intensity != 0 && Alert) ? IntensityToClassString(intensity)
 				: (intensity == 0 && Alert) ? "pga0"
@@ -2332,7 +2337,7 @@ function handler(Json) {
 										: "pga1";
 
 			if (setting["Real-time.websocket"] === "yayacat" && Alert && setting["dev.mode"]) {
-				intensity = Math.round(current_data.i);
+				intensity = rtsIntensityLevel(current_data.i);
 				level_class = IntensityToClassString(intensity);
 			}
 
@@ -2898,19 +2903,19 @@ function handler(Json) {
 }
 
 async function fetchStationData() {
-	const { data, source, error } = await fetchStationList();
+	const { data, source, changed, error } = await fetchStationList();
 
 	if (error) {
 		log(error, 3, "Location", "fetchStationData");
 		dump({ level: 2, message: error, origin: "Location" });
 	}
 
-	if (source) {
+	if (source && (changed || !station_loaded)) {
 		log(`Get Station File from ${source}`, 1, "Location", "fetchStationData");
 		dump({ level: 0, message: `Get Station File from ${source}`, origin: "Location" });
 	}
 
-	return data;
+	return { data, changed };
 }
 
 // 設定裡的測站若是舊網路的 ID，改成新網路裡距離最近的測站
@@ -2956,13 +2961,16 @@ async function migrateRealtimeStation() {
 	}
 }
 
+// 測站清單每 5 分鐘更新（同 TREM-Lite），內容沒變就不處理
+let station_loaded = false;
+
 async function fetchFiles() {
 	try {
 		Location = require(path.resolve(__dirname, "../Resources/locations.json"));
 		log("Get Location File", 1, "Location", "fetchFiles");
 		dump({ level: 0, message: "Get Location File", origin: "Location" });
 
-		const data = await fetchStationData();
+		const { data, changed } = await fetchStationData();
 
 		if (Object.keys(data).length === 0) {
 			// 抓不到時保留現有的測站資料，避免卡在載入畫面
@@ -2971,9 +2979,14 @@ async function fetchFiles() {
 			return;
 		}
 
+		if (station_loaded && !changed) return;
+
 		station_data = data;
 		station_v2_run(station_data);
-		PGAMain();
+
+		if (!station_loaded) PGAMain();
+
+		station_loaded = true;
 		migrateRealtimeStation().catch((err) => log(err, 3, "Location", "migrateRealtimeStation"));
 	} catch (err) {
 		log(err, 3, "Location", "fetchFiles");
@@ -3224,6 +3237,25 @@ function playNextAudio1() {
 // #endregion
 
 // #region Report Data
+// 每分鐘只查最新一筆，有新報告才重抓完整列表（同 TREM-Lite）
+async function checkNewestReport() {
+	try {
+		const res = await apiFetch("https://api.core.exptech.dev/api/v2/eq/report", { timeout: 5_000 });
+
+		if (!res.ok) return;
+
+		const [newest] = await res.json();
+		const cached = storage.getItem("report_data");
+
+		if (newest && !(Array.isArray(cached) && cached.some((r) => r?.id === newest.id))) {
+			log(`New report ${newest.id}`, 1, "EQReportFetcher", "checkNewestReport");
+			ReportGET();
+		}
+	} catch (err) {
+		log(err, 3, "EQReportFetcher", "checkNewestReport");
+	}
+}
+
 function ReportGET(badcatch = false) {
 	try {
 		if (!localStorage.fixReportGET_0) {
@@ -4776,9 +4808,7 @@ TREM.color = function color(Intensity) {
 };
 // #endregion
 
-let rts_clock = null;
 let eew_clock = null;
-let ntp_clock = null;
 
 // #region IPC
 ipcRenderer.on("start", () => {
@@ -4878,8 +4908,6 @@ function getTOS() {
 }
 
 // 舊的 /trem/rts HTTP 輪詢已下線，改用 SSE 即時推送（資料為 gzip + base64 的 JSON）
-const rts_sse_url = "https://api.lb.exptech.dev/api/v1/trem/sse?topics=trem.intensity.v1,trem.rts.v1&mode=live";
-let rts_sse = null;
 
 function decodeSSEText(data) {
 	if (/^\s*[{[<]/.test(data)) return data;
@@ -5016,208 +5044,141 @@ function rtsV1ToV2(ans) {
 // 重播資料可能是新的 rts.v1 或舊的 v2 格式
 const toRtsV2 = (rts) => (rts?.stations ? rtsV1ToV2(rts) : rts);
 
+// 兩條 SSE 即時串流（同 TREM-Lite）：
+// * trem：RTS 與 TREM 震度速報，視窗隱藏時拿掉 mode=live，伺服器只送有觸發測站的資料
+// * eew：各機關的地震速報（目前生效中的列表）
+const TREM_SSE_TOPICS = "trem.intensity.v1,trem.rts.v1";
+// 本專案關閉了 backgroundThrottling，document.visibilityState 不會變，改看視窗本身
+const isMainWindowHidden = () => !win.isVisible() || win.isMinimized();
+let rts_background = isMainWindowHidden();
+let trem_sse = null;
+let eew_sse = null;
+
+function onSSEHeartbeat(text) {
+	const ts = text.match(/^ping (\d+)/)?.[1];
+
+	if (ts) adoptServerTime(Number(ts) * 1000);
+}
+
 function freertsget(rts_key_verify_f = false) {
 	if (!rts_key_verify || rts_key_verify_f) {
-		if (rts_sse) rts_sse.close();
+		trem_sse ??= new SSEStream({
+			label   : "trem",
+			url     : () => `https://api.lb.exptech.dev/api/v1/trem/sse?topics=${TREM_SSE_TOPICS}${rts_background ? "" : "&mode=live"}`,
+			onEvent : (event, data) => {
+				if (event === "info") {
+					log(`trem SSE connected ${data}`, 1, "server", "rts-sse");
+				} else if (event === "trem.rts.v1") {
+					const ans = rtsV1ToV2(decodeSSEData(data));
+					rts_ws_timestamp = Date.now();
+					ans.Time = rts_ws_timestamp;
+					rts_response = ans;
+				} else if (event === "trem.intensity.v1") {
+					const report = readIntensityXml(decodeSSEText(data));
 
-		rts_sse = new EventSource(rts_sse_url);
-
-		rts_sse.addEventListener("info", (e) => {
-			log(`RTS SSE connected ${e.data}`, 1, "server", "rts-sse");
+					if (report) FCMdata(report, "sse");
+				}
+			},
+			onComment : onSSEHeartbeat,
+			log       : (message, level) => log(message, level, "server", "rts-sse"),
 		});
-
-		rts_sse.addEventListener("trem.rts.v1", (e) => {
-			try {
-				const ans = rtsV1ToV2(decodeSSEData(e.data));
-				rts_ws_timestamp = Date.now();
-				ans.Time = rts_ws_timestamp;
-				rts_response = ans;
-			} catch (err) {
-				log(err, 3, "server", "rts-sse");
-			}
-		});
-
-		rts_sse.addEventListener("trem.intensity.v1", (e) => {
-			try {
-				const report = readIntensityXml(decodeSSEText(e.data));
-
-				if (report) FCMdata(report, "sse");
-			} catch (err) {
-				log(err, 3, "server", "intensity-sse");
-			}
-		});
-
-		// EventSource 斷線後會依伺服器的 retry 自動重連
-		rts_sse.onerror = () => log("RTS SSE error, reconnecting", 2, "server", "rts-sse");
-	} else if (rts_key_verify && rts_sse) {
-		rts_sse.close();
-		rts_sse = null;
+		trem_sse.start();
+	} else if (rts_key_verify && trem_sse) {
+		trem_sse.stop();
 	}
 }
+
+// 背景模式只在有觸發時才有資料；觸發結束後不會再送，需自行清掉最後一筆的觸發狀態
+setInterval(() => {
+	if (!rts_background || !rts_response?.Alert || Date.now() - rts_ws_timestamp < 3_000) return;
+
+	const station_cleared = {};
+
+	for (const [id, s] of Object.entries(rts_response.station ?? {})) station_cleared[id] = { ...s, alert: false };
+
+	rts_response = { ...rts_response, station: station_cleared, Alert: false, box: {}, I: [], area: [] };
+}, 1_000);
+
+function updateRtsBackground() {
+	const hidden = isMainWindowHidden();
+
+	if (hidden === rts_background) return;
+
+	rts_background = hidden;
+	log(`trem SSE -> ${hidden ? "background (triggered frames only)" : "live"}`, 1, "server", "rts-sse");
+	trem_sse?.switchUrl();
+}
+
+for (const event of [
+	"show",
+	"hide",
+	"minimize",
+	"restore",
+]) win.on(event, updateRtsBackground);
 
 function fetch_eew() {
-	if (eew_clock) {
+	eew_sse ??= new SSEStream({
+		label   : "eew",
+		url     : () => "https://api.lb.exptech.dev/api/v2/eq/eew?sse=1",
+		onEvent : (event, data) => {
+			if (event === "info") {
+				log(`eew SSE connected ${data}`, 1, "server", "eew-sse");
+				return;
+			}
+
+			if (event !== "message") return;
+
+			HTTP = true;
+
+			for (const e of JSON.parse(data)) {
+				e.type = "eew";
+				e.timestamp = Date.now();
+				FCMdata(e, ServerType = "http");
+			}
+		},
+		onComment : onSSEHeartbeat,
+		log       : (message, level) => {
+			if (level === 3) HTTP = false;
+
+			log(message, level, "server", "eew-sse");
+		},
+	});
+	eew_sse.start();
+
+	if (eew_clock) return;
+
+	eew_clock = setInterval(() => {
+		if (window.navigator.onLine) return;
+
 		clearInterval(eew_clock);
 		eew_clock = null;
-	}
-
-	eew_clock = setInterval(async () => {
-		try {
-			if (!window.navigator.onLine) {
-				clearInterval(rts_clock);
-				rts_clock = null;
-				clearInterval(eew_clock);
-				eew_clock = null;
-				clearInterval(ntp_clock);
-				ntp_clock = null;
-				clearInterval(ws_clock);
-				ws_clock = null;
-				clearInterval(ws_yayacat_clock);
-				ws_yayacat_clock = null;
-				ws = null;
-				ws_yayacat = null;
-				ServerT_Time = 0;
-				ServerT_yayacat = 0;
-				ServerT_yayacat_Time = 0;
-				return showDialog(
-					"error",
-					TREM.Localization.getString("Initialization_No_Connection_Title"),
-					TREM.Localization.getString("Initialization_No_Connection_Description"),
-					0, "wifi_off", () => {
-						ipcRenderer.send("restart");
-					},
-				);
-			}
-
-			const controller = new AbortController();
-			const timer = setTimeout(() => controller.abort(), 1000);
-			const lb_num = route.auto_run();
-			await fetch(route.eew(2, eew_url), { signal: controller.signal })
-				.then((ans) => {
-					if (ans.ok) {
-						ans.json().then((ans0) => {
-							HTTP = true;
-
-							if (ans0.length != 0)
-								for (const e of ans0) {
-									e.type = "eew";
-									e.timestamp = Date.now();
-									FCMdata(e, ServerType = "http");
-								}
-
-							clearTimeout(timer);
-						});
-					} else {
-						if (eew_url == 0)
-							eew_url = 1;
-						else
-							eew_url = 0;
-						HTTP = false;
-						log(`lb-${lb_num} eq_eew`, 3, "server", "eew_clock");
-						console.error(ans);
-
-						switch (ans.status) {
-							case 429: {
-								break;
-							}
-
-							case 404: {
-								break;
-							}
-
-							case 500: {
-								break;
-							}
-
-							default: {
-								break;
-							}
-						}
-
-						clearTimeout(timer);
-					}
-				})
-				.catch((err) => {
-					if (eew_url == 0)
-						eew_url = 1;
-					else
-						eew_url = 0;
-					HTTP = false;
-					log(`lb-${lb_num} eq_eew`, 3, "server", "eew_clock");
-					log(err, 3, "server", "eew_clock");
-					clearTimeout(timer);
-				});
-		} catch (err) {
-			if (eew_url == 0)
-				eew_url = 1;
-			else
-				eew_url = 0;
-			HTTP = false;
-			log(err, 3, "server", "eew_clock");
-		}
-	}, 1000);
+		trem_sse?.stop();
+		eew_sse?.stop();
+		clearInterval(ws_clock);
+		ws_clock = null;
+		clearInterval(ws_yayacat_clock);
+		ws_yayacat_clock = null;
+		ws = null;
+		ws_yayacat = null;
+		ServerT_Time = 0;
+		ServerT_yayacat = 0;
+		ServerT_yayacat_Time = 0;
+		showDialog(
+			"error",
+			TREM.Localization.getString("Initialization_No_Connection_Title"),
+			TREM.Localization.getString("Initialization_No_Connection_Description"),
+			0, "wifi_off", () => {
+				ipcRenderer.send("restart");
+			},
+		);
+	}, 1_000);
 }
 
+// 校時與區域節點探測（每 10 分鐘校時、每 30 秒探測，同 TREM-Lite）
 function fetch_ntp() {
-	if (!rts_key_verify) {
-		if (ntp_clock) {
-			clearInterval(ntp_clock);
-			ntp_clock = null;
-		}
-
-		ntp_clock = setInterval(async () => {
-			try {
-				const controller = new AbortController();
-				const timer = setTimeout(() => controller.abort(), 1000);
-				const lb_num = route.auto_run();
-				await fetch(route.ntp(), { signal: controller.signal })
-					.then((ans) => {
-						if (ans.ok) {
-							ans.json().then((ans0) => {
-								if (!replayTemp && !replay) {
-									ServerT = Date.now();
-									ServerTime = ans0;
-								}
-
-								clearTimeout(timer);
-							});
-						} else {
-							HTTP = false;
-							log(`lb-${lb_num} ntp`, 3, "server", "ntp_clock");
-							console.error(err);
-
-							switch (ans.status) {
-								case 429: {
-									break;
-								}
-
-								case 404: {
-									break;
-								}
-
-								case 500: {
-									break;
-								}
-
-								default: {
-									break;
-								}
-							}
-
-							clearTimeout(timer);
-						}
-					})
-					.catch((err) => {
-						HTTP = false;
-						log(`lb-${lb_num} ntp`, 3, "server", "ntp_clock");
-						log(err, 3, "server", "eew_clock");
-						clearTimeout(timer);
-					});
-			} catch (err) {
-				log(err, 3, "server", "eew_clock");
-			}
-		}, 1000);
-	}
+	setEndpointLogger((message) => log(message, 1, "server", "endpoints"));
+	startProbing();
+	startClock((message, level) => log(message, level, "server", "clock"));
 }
 
 const stopReplay = function() {
@@ -7725,8 +7686,7 @@ function findClosest(arr, target) {
 }
 
 function NOW() {
-	// return new Date(ServerTime + (Date.now() - ((ServerT != 0 && setting["Real-time.websocket"] === "exptech") ? ServerT : ServerT_yayacat)));
-	return new Date(Date.now());
+	return new Date(realNow());
 }
 
 function timeconvert(time) {
