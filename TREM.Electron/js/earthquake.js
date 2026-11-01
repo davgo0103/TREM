@@ -3621,8 +3621,6 @@ async function checkTsunami() {
 // 啟動即時資料、速報與校時（原本要等 winserver.jar 發出 start 才會執行）
 function startServices() {
 	try {
-		setTimeout(() => getTOS(), 1000);
-
 		if (localStorage.rts_alert_false == undefined) {
 			localStorage.rts_alert_false = true;
 			ipcRenderer.send("config:value", "Real-time.alert", false);
@@ -3644,31 +3642,6 @@ function startServices() {
 		log(error, 3, "Initialization", "start");
 		dump({ level: 2, message: error, origin: "Initialization" });
 	}
-}
-
-function getTOS() {
-	if (localStorage.TOS_v1_2 == undefined)
-		showDialog(
-			"warn",
-			"TOS 服務條款 1.2",
-			`• 使用本服務應視為用戶同意使用條款\n
-			• TREMV 是一款提供 地震檢知、地震預警、海嘯警報、震度速報、地震報告 的軟體\n
-			• 禁止在未經允許的情況下二次分發 TREMV 軟體內的任何資訊\n
-			• 禁止轉售 TREMV 提供之資訊\n
-			• 禁止違反法律法規或違反公共秩序和道德的行為\n
-			• 除以上條款外 任何開發團隊合理認為不適當的行為均不被允許\n
-			• 任何資訊均以 中央氣象署(CWA) 發布之內容為準\n
-			• Powered by ExpTech | 2023/11/03`,
-			0,
-			"warning",
-			() => {
-				localStorage.TOS_v1_2 = true;
-			},
-			"我已詳細閱讀 並同意上述條款",
-			"",
-			() => void 0,
-			0,
-			1);
 }
 
 // 舊的 /trem/rts HTTP 輪詢已下線，改用 SSE 即時推送（資料為 gzip + base64 的 JSON）

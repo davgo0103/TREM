@@ -3,6 +3,10 @@ const { app } = require("@electron/remote");
 const fs = require("node:fs");
 const path = require("node:path");
 
+// 第一次啟動時這些資料夾還不存在（例如剛裝好的 macOS），要先建立才能寫入
+fs.mkdirSync(app.getPath("logs"), { recursive: true });
+fs.mkdirSync(path.join(app.getPath("userData"), "EEW"), { recursive: true });
+
 const latestLog = path.join(app.getPath("logs"), "latest.log");
 fs.writeFileSync(latestLog, "", { encoding: "utf8", flag: "w" });
 
