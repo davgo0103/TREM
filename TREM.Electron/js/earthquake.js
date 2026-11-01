@@ -979,9 +979,11 @@ async function init() {
 				// const unlock = (Unlock) ? "⚡" : "";
 				$("#log").text(`${stationnow}/${stationnowall} | ${stationPercentage}% | ${rss}`);
 				$("#log1").text(`${stationnow}/${stationnowall} | ${stationPercentage}% | ${rss}`);
-				ipcRenderer.send("TREMIntensitylog2", { time: now_format(NOW()), log: `${stationnow}/${stationnowall} | ${stationPercentage}% | ${rss}`, ver: `${app.getVersion()} ${Ping} ${GetDataState} ${Warn}` });
-				$("#app-version").text(`${app.getVersion()} ${Ping} ${GetDataState} ${Warn}`);
-				$("#app-version1").text(`${app.getVersion()} ${Ping} ${GetDataState} ${Warn}`);
+				const statusLine = `${app.getVersion()} by 小蔡 ${Ping} ${GetDataState} ${Warn}`;
+
+				ipcRenderer.send("TREMIntensitylog2", { time: now_format(NOW()), log: `${stationnow}/${stationnowall} | ${stationPercentage}% | ${rss}`, ver: statusLine });
+				$("#app-version").text(statusLine);
+				$("#app-version1").text(statusLine);
 			}, 500);
 
 		if (!Timers.tsunami)
