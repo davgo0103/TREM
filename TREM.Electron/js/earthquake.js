@@ -11,6 +11,7 @@ const { fetchStationList, fetchLegacyStationList } = require("../js/station_list
 const { SSEStream } = require("../js/sse.js");
 const { apiFetch, startProbing, setLogger: setEndpointLogger } = require("../js/endpoints.js");
 const { realNow, adoptServerTime, startClock } = require("../js/clock.js");
+const { sendWebhook } = require("../js/webhook.js");
 const route = new Route();
 
 const JSZip = require("jszip");
@@ -324,11 +325,7 @@ TREM.MapIntensity = {
 							},
 						],
 					};
-					fetch(setting["webhook.url"], {
-						method  : "POST",
-						headers : { "Content-Type": "application/json" },
-						body    : JSON.stringify(msg),
-					}).catch((error) => {
+					sendWebhook(setting["webhook.url"], msg).catch((error) => {
 						log(error, 3, "Webhook", "palert");
 						dump({ level: 2, message: error, origin: "Webhook" });
 					});
@@ -4197,11 +4194,7 @@ ipcRenderer.on("report-Notification", (event, report) => {
 			};
 		}
 
-		fetch(setting["webhook.url"], {
-			method  : "POST",
-			headers : { "Content-Type": "application/json" },
-			body    : JSON.stringify(msg),
-		}).catch((error) => {
+		sendWebhook(setting["webhook.url"], msg).catch((error) => {
 			log(error, 3, "Webhook", "report-Notification");
 			dump({ level: 2, message: error, origin: "Webhook" });
 		});
@@ -4360,11 +4353,7 @@ ipcRenderer.on("intensity-Notification", (event, intensity) => {
 				},
 			],
 		};
-		fetch(setting["webhook.url"], {
-			method  : "POST",
-			headers : { "Content-Type": "application/json" },
-			body    : JSON.stringify(msg),
-		}).catch((error) => {
+		sendWebhook(setting["webhook.url"], msg).catch((error) => {
 			log(error, 3, "Webhook", "intensity-Notification");
 			dump({ level: 2, message: error, origin: "Webhook" });
 		});
@@ -4390,11 +4379,7 @@ ipcRenderer.on("update-available-Notification", (event, version, getVersion, inf
 				] };
 			msg.embeds[0].title = TREM.Localization.getString("Notification_Update_Title");
 			msg.embeds[0].description = getVersionbody;
-			fetch(setting["webhook.url"], {
-				method  : "POST",
-				headers : { "Content-Type": "application/json" },
-				body    : JSON.stringify(msg),
-			}).catch((error) => {
+			sendWebhook(setting["webhook.url"], msg).catch((error) => {
 				log(error, 3, "Webhook", "update-available-Notification");
 				dump({ level: 2, message: error, origin: "Webhook" });
 			});
@@ -4425,11 +4410,7 @@ ipcRenderer.on("update-not-available-Notification", (event, version, getVersion)
 				] };
 			msg.embeds[0].title = TREM.Localization.getString("Notification_No_Update_Title");
 			msg.embeds[0].description = getVersionbody;
-			fetch(setting["webhook.url"], {
-				method  : "POST",
-				headers : { "Content-Type": "application/json" },
-				body    : JSON.stringify(msg),
-			}).catch((error) => {
+			sendWebhook(setting["webhook.url"], msg).catch((error) => {
 				log(error, 3, "Webhook", "update-not-available-Notification");
 				dump({ level: 2, message: error, origin: "Webhook" });
 			});
@@ -5452,113 +5433,58 @@ TREM.Earthquake.on("eew", (data) => {
 		},
 	});
 
-	if (setting["webhook.url"] != "")
+	// 關閉 TREM 速報通知時，只送其他來源的速報
+	if (setting["webhook.url"] != "" && !(setting["trem-eew.No-Notification"] && data.author == "trem"))
 		setTimeout(() => {
 			const showtime = timeconvert(time).format("YYYY/MM/DD HH:mm:ss");
+			const provider = eewProvider(data);
 
-			if (!setting["trem-eew.No-Notification"]) {
-				const Now1 = NOW().getFullYear()
-					+ "/" + (NOW().getMonth() + 1)
-					+ "/" + NOW().getDate()
-					+ " " + NOW().getHours()
-					+ ":" + NOW().getMinutes()
-					+ ":" + NOW().getSeconds();
+			let msg = setting["webhook.body"];
+			msg = msg.replace("%Depth%", data.depth == null ? "?" : data.depth).replaceAll("%NorthLatitude%", data.lat).replace("%Time%", showtime).replaceAll("%EastLongitude%", data.lon).replace("%location%", data.location).replace("%Scale%", data.scale == null ? "?" : data.scale).replace("%Number%", data.number).replace("%Final%", (data.final) ? "(最終報)" : "").replace("%Provider%", provider);
 
-				let msg = setting["webhook.body"];
-				msg = msg.replace("%Depth%", data.depth == null ? "?" : data.depth).replaceAll("%NorthLatitude%", data.lat).replace("%Time%", showtime).replaceAll("%EastLongitude%", data.lon).replace("%location%", data.location).replace("%Scale%", data.scale == null ? "?" : data.scale).replace("%Number%", data.number).replace("%Final%", (data.final) ? "(最終報)" : "");
+			msg = JSON.parse(msg);
+			msg.username = "TREMV | 臺灣即時地震監測變體";
 
-				if (data.type == "eew-cwb")
-					msg = msg.replace("%Provider%", "中央氣象署 (CWA)");
-				else if (data.type == "eew-scdzj")
-					msg = msg.replace("%Provider%", "四川省地震局 (SCDZJ)");
-				else if (data.type == "eew-fjdzj")
-					msg = msg.replace("%Provider%", "福建省地震局 (FJDZJ)");
-				else if (data.type == "eew-nied")
-					msg = msg.replace("%Provider%", "防災科学技術研究所 (NIED)");
-				else if (data.type == "eew-jma")
-					msg = msg.replace("%Provider%", "気象庁(JMA)");
-				else if (data.type == "eew-kma")
-					msg = msg.replace("%Provider%", "기상청(KMA)");
-				else if (data.type == "trem-eew" && data.number <= 3)
-					msg = msg.replace("%Provider%", "NSSPE(無震源參數推算)");
-				else if (data.type == "trem-eew" && data.number > 3)
-					msg = msg.replace("%Provider%", "TREM(實驗功能僅供參考)");
-				else if (data.author == "trem" && data.serial <= 3)
-					msg = msg.replace("%Provider%", "NSSPE(無震源參數推算)");
-				else if (data.author == "trem" && data.serial > 3)
-					msg = msg.replace("%Provider%", "TREM(實驗功能僅供參考)");
-				else
-					msg = msg.replace("%Provider%", data.Unit);
+			if (msg.embeds?.[0]) {
+				if (!msg.embeds[0].image?.url) delete msg.embeds[0].image;
 
-				msg = JSON.parse(msg);
-				msg.username = "TREMV | 臺灣即時地震監測變體";
-
-				msg.embeds[0].image.url = "";
 				msg.embeds[0].footer = {
-					text     : `ExpTech Studio ${Now1}`,
+					text     : "TREMV by 小蔡 | 資料來源：ExpTech、中央氣象署",
 					icon_url : "https://avatars.githubusercontent.com/u/91672109?s=128",
 				};
-				msg.tts = setting["tts.Notification"];
-				msg.content = setting["tts.Notification"] ? (showtime + "左右發生顯著有感地震東經" + data.lon + "北緯" + data.lat + "位於" + data.location + "深度" + (data.depth == null ? "?" : data.depth + "公里") + "規模" + (data.scale == null ? "?" : data.scale) + "第" + data.number + "報發報單位" + data.Unit + "慎防強烈搖晃，就近避難 [趴下、掩護、穩住]") : "";
-				log("Posting EEW Webhook", 1, "Webhook", "eew");
-				dump({ level: 0, message: "Posting EEW Webhook", origin: "Webhook" });
-				fetch(setting["webhook.url"], {
-					method  : "POST",
-					headers : { "Content-Type": "application/json" },
-					body    : JSON.stringify(msg),
-				}).catch((error) => {
-					log(error, 3, "Webhook", "eew");
-					dump({ level: 2, message: error, origin: "Webhook" });
-				});
-			} else if (setting["trem-eew.No-Notification"] && (data.author != "trem")) {
-				const Now1 = NOW().getFullYear()
-					+ "/" + (NOW().getMonth() + 1)
-					+ "/" + NOW().getDate()
-					+ " " + NOW().getHours()
-					+ ":" + NOW().getMinutes()
-					+ ":" + NOW().getSeconds();
-
-				let msg = setting["webhook.body"];
-				msg = msg.replace("%Depth%", data.depth == null ? "?" : data.depth).replaceAll("%NorthLatitude%", data.lat).replace("%Time%", showtime).replaceAll("%EastLongitude%", data.lon).replace("%location%", data.location).replace("%Scale%", data.scale == null ? "?" : data.scale).replace("%Number%", data.number).replace("%Final%", (data.final) ? "(最終報)" : "");
-
-				if (data.type == "eew-cwb")
-					msg = msg.replace("%Provider%", "中央氣象署 (CWA)");
-				else if (data.type == "eew-scdzj")
-					msg = msg.replace("%Provider%", "四川省地震局 (SCDZJ)");
-				else if (data.type == "eew-fjdzj")
-					msg = msg.replace("%Provider%", "福建省地震局 (FJDZJ)");
-				else if (data.type == "eew-nied")
-					msg = msg.replace("%Provider%", "防災科学技術研究所 (NIED)");
-				else if (data.type == "eew-jma")
-					msg = msg.replace("%Provider%", "気象庁(JMA)");
-				else if (data.type == "eew-kma")
-					msg = msg.replace("%Provider%", "기상청(KMA)");
-				else
-					msg = msg.replace("%Provider%", data.Unit);
-
-				msg = JSON.parse(msg);
-				msg.username = "TREMV | 臺灣即時地震監測變體";
-
-				msg.embeds[0].image.url = "";
-				msg.embeds[0].footer = {
-					text     : `ExpTech Studio ${Now1}`,
-					icon_url : "https://avatars.githubusercontent.com/u/91672109?s=128",
-				};
-				msg.tts = setting["tts.Notification"];
-				msg.content = setting["tts.Notification"] ? (showtime + "左右發生顯著有感地震東經" + data.lon + "北緯" + data.lat + "位於" + data.location + "深度" + (data.depth == null ? "?" : data.depth + "公里") + "規模" + (data.scale == null ? "?" : data.scale) + "第" + data.number + "報發報單位" + data.Unit + "慎防強烈搖晃，就近避難 [趴下、掩護、穩住]") : "";
-				log("Posting No trem-eew Webhook", 1, "Webhook", "eew");
-				dump({ level: 0, message: "Posting Webhook", origin: "Webhook" });
-				fetch(setting["webhook.url"], {
-					method  : "POST",
-					headers : { "Content-Type": "application/json" },
-					body    : JSON.stringify(msg),
-				}).catch((error) => {
-					log(error, 3, "Webhook", "eew");
-					dump({ level: 2, message: error, origin: "Webhook" });
-				});
+				msg.embeds[0].timestamp = new Date(NOW().getTime()).toISOString();
 			}
+
+			msg.tts = setting["tts.Notification"];
+			msg.content = setting["tts.Notification"] ? (showtime + "左右發生顯著有感地震東經" + data.lon + "北緯" + data.lat + "位於" + data.location + "深度" + (data.depth == null ? "?" : data.depth + "公里") + "規模" + (data.scale == null ? "?" : data.scale) + "第" + data.number + "報發報單位" + provider + "慎防強烈搖晃，就近避難 [趴下、掩護、穩住]") : "";
+			log(`Posting EEW Webhook ${data.id} #${data.number}`, 1, "Webhook", "eew");
+			dump({ level: 0, message: "Posting EEW Webhook", origin: "Webhook" });
+			// 同一個地震的後續報數編輯原訊息，並換上當下的地圖截圖
+			sendWebhook(setting["webhook.url"], msg, { key: `${data.replay_time ? "replay" : "eew"}:${data.id}`, image: true }).catch((error) => {
+				log(error, 3, "Webhook", "eew");
+				dump({ level: 2, message: error, origin: "Webhook" });
+			});
 		}, 2000);
 });
+
+/** 速報的發報單位名稱。 */
+function eewProvider(data) {
+	const providers = {
+		"eew-cwb"   : "中央氣象署 (CWA)",
+		"eew-scdzj" : "四川省地震局 (SCDZJ)",
+		"eew-fjdzj" : "福建省地震局 (FJDZJ)",
+		"eew-nied"  : "防災科学技術研究所 (NIED)",
+		"eew-jma"   : "気象庁(JMA)",
+		"eew-kma"   : "기상청(KMA)",
+	};
+
+	if (providers[data.type]) return providers[data.type];
+
+	if (data.type == "trem-eew" || data.author == "trem")
+		return (data.number ?? data.serial) <= 3 ? "NSSPE(無震源參數推算)" : "TREM(實驗功能僅供參考)";
+
+	return data.Unit;
+}
 // #endregion
 
 // #region Event: eewEnd
@@ -5620,11 +5546,7 @@ TREM.Earthquake.on("trem-eq", (data) => {
 		if (setting["trem-eq.alert.Notification.Intensity"] <= Max_Intensity) {
 			log("Posting Notification trem-eq alert Webhook", 1, "Webhook", "trem-eq");
 			dump({ level: 0, message: "Posting Notification trem-eq alert Webhook", origin: "Webhook" });
-			fetch(setting["webhook.url"], {
-				method  : "POST",
-				headers : { "Content-Type": "application/json" },
-				body    : JSON.stringify(msg),
-			}).catch((error) => {
+			sendWebhook(setting["webhook.url"], msg).catch((error) => {
 				log(error, 3, "Webhook", "trem-eq");
 				dump({ level: 2, message: error, origin: "Webhook" });
 			});
@@ -5669,11 +5591,7 @@ TREM.Earthquake.on("trem-eq", (data) => {
 		};
 		log("Posting dev mode Notification trem-eq alert Webhook", 1, "Webhook", "trem-eq");
 		dump({ level: 0, message: "Posting dev mode Notification trem-eq Webhook", origin: "Webhook" });
-		fetch(setting["webhook.url"], {
-			method  : "POST",
-			headers : { "Content-Type": "application/json" },
-			body    : JSON.stringify(msg),
-		}).catch((error) => {
+		sendWebhook(setting["webhook.url"], msg).catch((error) => {
 			log(error, 3, "Webhook", "trem-eq");
 			dump({ level: 2, message: error, origin: "Webhook" });
 		});

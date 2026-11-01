@@ -818,6 +818,19 @@ ipcMain.on("screenshotEEW", async (event, json) => {
 	}
 });
 
+// Webhook 附圖：擷取主視窗，寬度超過 1024 時縮小
+ipcMain.handle("webhook:capture", async () => {
+	if (!MainWindow || MainWindow.isDestroyed()) return null;
+
+	let image = await MainWindow.webContents.capturePage();
+
+	if (image.isEmpty()) return null;
+
+	if (image.getSize().width > 1024) image = image.resize({ width: 1024, quality: "best" });
+
+	return image.toPNG();
+});
+
 ipcMain.on("screenshotEEWI", async (event, json) => {
 	// return;
 	const folder = path.join(TREM.getPath("userData"), "EEW");

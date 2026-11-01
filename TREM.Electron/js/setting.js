@@ -5,6 +5,7 @@ const win = getCurrentWindow();
 TREM.Constants = require(path.resolve(__dirname, "../Constants/Constants.js"));
 
 const { fetchStationList } = require("../js/station_list.js");
+const { sendWebhook, parseUrls: parseWebhookUrls } = require("../js/webhook.js");
 
 document.onreadystatechange = () => {
 	if (document.readyState == "complete")
@@ -1455,61 +1456,41 @@ const testAudioTTS = () => {
 };
 
 const webhook = async () => {
-	if (setting["webhook.url"].length == 0)
+	if (setting["webhook.url"].trim().length == 0)
 		return showDialog("error",
 			TREM.Localization.getString("Webhook_Dialog_Error_Title"),
 			TREM.Localization.getString("Webhook_Dialog_Error_Empty"),
 		);
 
-	// 與實際發送通知相同，接受任何 http(s) 網址（Discord 或自架的 Webhook 服務）
-	let target;
+	// 與實際發送通知相同，接受任何 http(s) 網址（Discord 或自架的 Webhook 服務），可填多個
+	const urls = parseWebhookUrls(setting["webhook.url"]);
 
-	try {
-		target = new URL(setting["webhook.url"]);
-	} catch {
-		target = null;
-	}
-
-	if (!target || !["http:", "https:"].includes(target.protocol))
+	if (!urls.length)
 		return showDialog("error",
 			TREM.Localization.getString("Webhook_Dialog_Error_Title"),
 			TREM.Localization.getString("Webhook_Dialog_Error_Invalid"));
 
-	// Discord 加上 wait=true 才會回傳訊息內容（含訊息與頻道 ID）
-	const isDiscord = /(^|\.)discord(app)?\.com$/i.test(target.hostname);
-
-	if (isDiscord) target.searchParams.set("wait", "true");
-
 	const body = {
 		username   : "TREMV | 臺灣即時地震監測變體",
-		avatar_url : "https://cdn.discordapp.com/attachments/976452418114048051/976469802644291584/received_1354357138388018.webp",
+		avatar_url : "https://avatars.githubusercontent.com/u/91672109?s=128",
 		content    : setting["tts.Notification"] ? "這是一則由 TREMV 發送的測試訊息" : "",
 		tts        : setting["tts.Notification"],
 		embeds     : [
 			{
-				description : "這是一則由 TREMV 發送的測試訊息",
+				title       : "Webhook 測試",
+				description : "這是一則由 TREMV 發送的測試訊息\nDiscord 會附上目前主畫面的截圖，地震速報時也會附上",
 				color       : 0x3498db,
-				footer      : { text: "ExpTech Studio" },
+				footer      : { text: "TREMV by 小蔡 | 資料來源：ExpTech、中央氣象署" },
 				timestamp   : new Date().toISOString(),
 			},
 		],
 	};
 
 	try {
-		const res = await fetch(target, {
-			method  : "POST",
-			headers : { "Content-Type": "application/json" },
-			body    : JSON.stringify(body),
-		});
-
-		if (!res.ok) throw new Error(`HTTP ${res.status} ${await res.text()}`);
-
-		const message = isDiscord ? await res.json() : null;
+		await sendWebhook(setting["webhook.url"], body, { image: true });
 		showDialog("success",
 			TREM.Localization.getString("Webhook_Dialog_Title"),
-			message
-				? TREM.Localization.getString("Webhook_Dialog_Success").format(message.id, message.channel_id)
-				: `Webhook 發送測試訊息成功（HTTP ${res.status}）`);
+			`已發送測試訊息到 ${urls.length} 個 Webhook`);
 	} catch (error) {
 		showDialog("error", "Webhook 測試", `Webhook 發送測試訊息時發生錯誤\n${error}`);
 		log(error, 3, "Setting", "webhook");
