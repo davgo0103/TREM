@@ -46,7 +46,12 @@ function parseUrls(value) {
 		try {
 			const url = new URL(part);
 
-			if (["http:", "https:"].includes(url.protocol)) urls.push(url);
+			if (!["http:", "https:"].includes(url.protocol)) continue;
+
+			// Discord 的 Webhook 網址結尾多了斜線會回 404
+			if (isDiscord(url)) url.pathname = url.pathname.replace(/\/+$/, "");
+
+			urls.push(url);
 		} catch {
 			// 略過無效網址
 		}
@@ -186,23 +191,24 @@ async function sendWebhook(urls, body, { key, image = false } = {}) {
 
 	if (key != null) lastBody.set(key, body);
 
-	// 截圖要在排隊前取得，才是收到這一報當下的畫面
-	const jpeg = image && targets.some(isDiscord) ? await captureMap() : null;
+	// 截圖現在就開始，才是收到這一報當下的畫面；但先排進佇列，順序才不會因截圖快慢對調
+	const capture = image && targets.some(isDiscord) ? captureMap() : Promise.resolve(null);
 
 	const send = async () => {
+		const jpeg = await capture;
 		const results = await Promise.allSettled(targets.map((url) => sendOne(url, body, { key, image: jpeg })));
 		const errors = results.filter((r) => r.status == "rejected").map((r) => r.reason);
 
 		if (errors.length) throw new Error(errors.map(String).join("; "));
 	};
 
-	if (key == null) return send();
+	if (key == null) return await send();
 
 	// 同一事件依序發送：前一則拿到訊息 ID 後，這一則才能改為編輯
 	const job = (queue.get(key) ?? Promise.resolve()).catch(() => void 0).then(send);
 	queue.set(key, job);
 	job.finally(() => queue.get(key) === job && queue.delete(key)).catch(() => void 0);
-	return job;
+	return await job;
 }
 
 /**

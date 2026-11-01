@@ -2324,7 +2324,7 @@ function handler(Json) {
 				if (!IMAXdata[id]) IMAXdata[id] = {};
 
 				const Json_station = Json.station ? Json.station[id] : Json[id];
-				const Json_station_v = Json_station.v ?? Json_station.pga;
+				const Json_station_v = Json_station.a ?? Json_station.pga;
 
 				if (!IMAXdata[id].pga) IMAXdata[id].pga = Json_station_v;
 				else if (IMAXdata[id].pga < Json_station_v) IMAXdata[id].pga = Json_station_v;
@@ -2347,7 +2347,7 @@ function handler(Json) {
 				const id = All[Index].uuid.split("-")[2];
 				const CPGA = (Idata[city] == undefined) ? 0 : Idata[city];
 				const Json_station = Json.station ? Json.station[id] : Json[id];
-				const Json_station_v = Json_station.v ?? Json_station.pga;
+				const Json_station_v = Json_station.a ?? Json_station.pga;
 
 				if (Json_station_v > CPGA) {
 					if (Idata[city] == undefined) Idata[city] = {};
@@ -5411,7 +5411,7 @@ TREM.Earthquake.on("eew", (data) => {
 	});
 
 	// 關閉 TREM 速報通知時，只送其他來源的速報
-	if (setting["webhook.url"] != "" && !(setting["trem-eew.No-Notification"] && data.author == "trem") && webhookInTime(`eew:${data.id}`, time.getTime()))
+	if (setting["webhook.url"] != "" && !(setting["trem-eew.No-Notification"] && data.author == "trem") && webhookInTime(`${data.replay_time ? "replay" : "eew"}:${data.id}`, time.getTime()))
 		setTimeout(() => {
 			const showtime = timeconvert(time).format("YYYY/MM/DD HH:mm:ss");
 			const provider = eewProvider(data);
@@ -5447,7 +5447,7 @@ TREM.Earthquake.on("eew", (data) => {
 });
 
 // 震動檢測（即時測站觸發）的 Webhook：同一次震動編輯同一則訊息，震度升級時更新內容與截圖
-// 發出後 2 分鐘內收到 CWA 或 TREM 速報時，由速報接手編輯這則訊息（見 eewWebhookKey）
+// 發震時間與震動開始相差 2 分鐘內的 CWA 或 TREM 速報，由速報接手編輯這則訊息（見 eewWebhookKey）
 const RTS_WEBHOOK_TAKEOVER_MS = 120_000;
 let rtsWebhookEvent = null;
 
@@ -5459,7 +5459,7 @@ function rtsWebhook(Json, All) {
 	const time = Json.time ?? Json.Time;
 
 	if (!rtsWebhookEvent || rtsWebhookEvent.ended)
-		rtsWebhookEvent = { key: `rts:${time}`, start: time, sentAt: Date.now(), claimed: false, ended: false };
+		rtsWebhookEvent = { key: `rts:${time}`, start: time, claimed: false, ended: false };
 
 	const event = rtsWebhookEvent;
 
@@ -5473,7 +5473,7 @@ function rtsWebhook(Json, All) {
 
 		const id = s.uuid.split("-")[2];
 		const data = Json.station ? Json.station[id] : Json[id];
-		const pga = data?.v ?? data?.pga ?? 0;
+		const pga = +(data?.a ?? data?.pga ?? 0);
 		const county = (counties[s.loc.split(" ")[0]] ??= { intensity: -1, pga: 0 });
 
 		if (s.intensity > county.intensity) county.intensity = s.intensity;
@@ -5519,18 +5519,22 @@ function rtsWebhook(Json, All) {
 const eewWebhookKeys = new Map();
 
 function eewWebhookKey(data) {
-	if (eewWebhookKeys.has(data.id)) return eewWebhookKeys.get(data.id);
+	const key = `${data.replay_time ? "replay" : "eew"}:${data.id}`;
 
-	let key = `${data.replay_time ? "replay" : "eew"}:${data.id}`;
+	if (eewWebhookKeys.has(key)) return eewWebhookKeys.get(key);
+
 	const event = rtsWebhookEvent;
+	// 以發震時間比對，重播的速報不會接手即時的震動檢測，反之亦然
+	const eqTime = data.replay_time ?? data.time;
 
-	if (event && !event.claimed && (data.author == "cwa" || data.author == "trem") && Date.now() - event.sentAt < RTS_WEBHOOK_TAKEOVER_MS && hasWebhookMessage(event.key)) {
+	if (event && !event.claimed && (data.author == "cwa" || data.author == "trem") && Math.abs(event.start - eqTime) < RTS_WEBHOOK_TAKEOVER_MS && hasWebhookMessage(event.key)) {
 		event.claimed = true;
-		key = event.key;
 		log(`EEW ${data.id} takes over ${event.key}`, 1, "Webhook", "eew");
+		eewWebhookKeys.set(key, event.key);
+		return event.key;
 	}
 
-	eewWebhookKeys.set(data.id, key);
+	eewWebhookKeys.set(key, key);
 
 	if (eewWebhookKeys.size > 200) eewWebhookKeys.delete(eewWebhookKeys.keys().next().value);
 
@@ -5538,11 +5542,12 @@ function eewWebhookKey(data) {
 }
 
 // 重播或延遲送達的舊警報不發 Webhook。以同一事件第一次收到時判斷，
-// 已發出的地震後續報數照常發送；webhook.maxAge 為 0 時不限制
+// 已發出的地震後續報數照常發送；webhook.maxAge 為 0 時不限制，空白時用預設的 60 秒
 const webhookInTimeCache = new Map();
 
 function webhookInTime(key, eventTime) {
-	const limit = Number(setting["webhook.maxAge"]);
+	const value = String(setting["webhook.maxAge"] ?? "").trim();
+	const limit = value == "" ? 60 : Number(value);
 
 	if (!(limit > 0)) return true;
 
