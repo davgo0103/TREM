@@ -302,7 +302,9 @@ TREM.Report = {
 		if (ReportTag) ReportTag = 0;
 
 		if (!report.download) {
-			document.getElementById("report-replay-downloader-text").innerText = "下載中...";
+			const downloaderText = document.getElementById("report-replay-downloader-text");
+
+			if (downloaderText) downloaderText.innerText = "下載中...";
 			this.clock = setInterval(() => {
 				if (report.download) return;
 
@@ -645,7 +647,10 @@ TREM.Report = {
 		if (!report) return;
 
 		if (report.loc) {
-			document.getElementById("report-replay-downloader").value = report.id;
+			// 下載按鈕目前在 MainView.html 中被註解掉，存在時才設定
+			const downloader = document.getElementById("report-replay-downloader");
+
+			if (downloader) downloader.value = report.id;
 
 			if (!report.list) {
 				fetch(this.route.earthquakeReport(report.id))
