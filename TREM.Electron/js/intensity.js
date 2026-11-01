@@ -120,16 +120,6 @@ async function init() {
 	}
 
 	try {
-		if (setting["intensity.palert"] != "") {
-			const json_palert = require(path.resolve(folder, `${setting["intensity.palert"]}.json`));
-			ipcRenderer.send("TREMIntensityload", json_palert);
-		}
-	} catch (err) {
-		log(`解析檔案 ${setting["intensity.palert"]}.json 時發生錯誤:`, 3, "init", "intensity");
-		log(err, 3, "init", "intensity");
-	}
-
-	try {
 		if (setting["intensity.trem"] != "") {
 			const json_trem = require(path.resolve(folder, `${setting["intensity.trem"]}.json`));
 			ipcRenderer.send("TREMIntensityload", json_trem);

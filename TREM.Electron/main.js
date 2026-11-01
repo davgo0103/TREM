@@ -337,16 +337,12 @@ TREM.on("web-contents-created", (_, contents) => {
 	});
 });
 
-// 接收紀錄（userData/data，以毫秒時間戳命名）只保留一年；設定中指定的三個震度檔不刪
+// 接收紀錄（userData/data，以毫秒時間戳命名）只保留一年；設定中指定的震度檔不刪
 const DATA_RETENTION_MS = 365 * 86400_000;
 
 async function cleanupDataFolder() {
 	const dir = path.join(TREM.getPath("userData"), "data");
-	const keep = new Set([
-		"intensity.cwa",
-		"intensity.palert",
-		"intensity.trem",
-	].map((key) => `${TREM.Configuration.data[key]}.json`));
+	const keep = new Set(["intensity.cwa", "intensity.trem"].map((key) => `${TREM.Configuration.data[key]}.json`));
 	const cutoff = Date.now() - DATA_RETENTION_MS;
 	let removed = 0;
 

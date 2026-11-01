@@ -1026,15 +1026,9 @@ function send() {
 
 	if (testtext_value == "中央氣象署") Unit_type = "cwa";
 
-	if (testtext_value == "防災科学技術研究所") Unit_type = "nied";
-
 	if (testtext_value == "日本氣象廳") Unit_type = "jma";
 
 	if (testtext_value == "韓國氣象廳") Unit_type = "kma";
-
-	if (testtext_value == "福建省地震局") Unit_type = "fjdzj";
-
-	if (testtext_value == "四川省地震局") Unit_type = "scdzj";
 
 	if (testtext_value == "NSSPE") Unit_type = "trem-eew";
 

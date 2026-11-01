@@ -88,23 +88,11 @@ const Constants = Object.freeze({
 			type  : "toggle",
 			value : true,
 		},
-		"accept.eew.NIED": {
-			type  : "toggle",
-			value : false,
-		},
 		"accept.eew.JMA": {
 			type  : "toggle",
 			value : false,
 		},
 		"accept.eew.KMA": {
-			type  : "toggle",
-			value : false,
-		},
-		"accept.eew.SCDZJ": {
-			type  : "toggle",
-			value : false,
-		},
-		"accept.eew.FJDZJ": {
 			type  : "toggle",
 			value : false,
 		},
@@ -257,10 +245,6 @@ const Constants = Object.freeze({
 			value : false,
 		},
 		"intensity.Notification": {
-			type  : "toggle",
-			value : false,
-		},
-		"palert.Notification": {
 			type  : "toggle",
 			value : false,
 		},
@@ -505,10 +489,6 @@ const Constants = Object.freeze({
 			value : "",
 		},
 		"intensity.cwa": {
-			type  : "string",
-			value : "",
-		},
-		"intensity.palert": {
 			type  : "string",
 			value : "",
 		},

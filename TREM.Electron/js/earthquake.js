@@ -26,7 +26,6 @@ TREM.Audios = {
 	note   : new Audio("../audio/Note.wav"),
 	update : new Audio("../audio/Update.wav"),
 	areav2 : new Audio("../audio/1/update.wav"),
-	palert : new Audio("../audio/palert.wav"),
 };
 TREM.AudioContext = new AudioContext({});
 TREM.Constants = require(path.resolve(__dirname, "../Constants/Constants.js"));
@@ -198,206 +197,6 @@ TREM.MapIntensity = {
 	MaxI        : -1,
 	intensities : new Map(),
 	description : "",
-	palert(rawPalertData) {
-		console.debug(rawPalertData);
-
-		if (rawPalertData.intensity?.length && !replay) {
-			if (rawPalertData.timestamp != this.alertTime) {
-				this.alertTime = rawPalertData.timestamp;
-				this.MaxI = -1;
-				const PLoc = {};
-				const int = new Map();
-
-				for (const palertEntry of rawPalertData.intensity) {
-					const [countyName, townName] = palertEntry.loc.split(" ");
-					const towncode = TREM.Resources.region[countyName]?.[townName]?.code;
-
-					if (!towncode) continue;
-					int.set(towncode, palertEntry.intensity);
-					PLoc[towncode] = palertEntry.intensity;
-
-					if (palertEntry.intensity > this.MaxI) {
-						this.trem = false;
-						this.MaxI = palertEntry.intensity;
-						Report = rawPalertData.time;
-						Report_GET();
-					}
-				}
-
-				if (speecd_use && rawPalertData.final) {
-					const now = timeconvert(new Date(rawPalertData.time)).format("YYYY/MM/DD HH:mm:ss");
-					let intensity_index0 = 0;
-					let description0 = "";
-
-					for (let index = this.MaxI; index > 0; index--) {
-						const intensity0 = `${IntensityI(index)}級`;
-						let countyName_index0 = "";
-
-						for (const palertEntry of rawPalertData.intensity) {
-							const [countyName, townName] = palertEntry.loc.split(" ");
-
-							if (palertEntry.intensity == index) {
-								if (countyName_index0 == "") {
-									description0 += `${countyName} `;
-
-									if (rawPalertData.intensity.length != intensity_index0)
-										description0 += `${intensity0.replace("-級", "弱").replace("+級", "強")}\n`;
-								} else if (countyName_index0 == countyName) {
-									continue;
-								} else {
-									description0 += `\n${countyName} `;
-
-									if (rawPalertData.intensity.length != intensity_index0)
-										description0 += `${intensity0.replace("-級", "弱").replace("+級", "強")}\n`;
-								}
-
-								countyName_index0 = countyName;
-								intensity_index0 += 1;
-							}
-						}
-					}
-
-					TREM.speech.speak({ text: "震度速報"
-					+ "資料來源PAlert(最終報)"
-					+ "時間" + now
-					+ "觸發測站" + rawPalertData.tiggered + "台震度分布"
-					+ description0 });
-				}
-
-				if (setting["webhook.url"] != "" && setting["palert.Notification"]) {
-					log("Posting Notification palert Webhook", 1, "Webhook", "palert");
-					dump({ level: 0, message: "Posting Notification palert Webhook", origin: "Webhook" });
-					this.description = "";
-					let intensity_index = 0;
-
-					for (let index = this.MaxI; index > 0; index--) {
-						const intensity = `${IntensityI(index)}級`;
-
-						if (rawPalertData.intensity.length != intensity_index)
-							this.description += `${intensity.replace("-級", "弱").replace("+級", "強")}\n`;
-						let countyName_index = "";
-
-						for (const palertEntry of rawPalertData.intensity) {
-							const [countyName, townName] = palertEntry.loc.split(" ");
-
-							if (palertEntry.intensity == index) {
-								if (countyName_index == "")
-									this.description += `${palertEntry.loc} `;
-								else if (countyName_index == countyName)
-									this.description += `${townName} `;
-								else
-									this.description += `\n${palertEntry.loc} `;
-								countyName_index = countyName;
-								intensity_index += 1;
-							}
-						}
-
-						this.description += "\n";
-					}
-
-					// console.log(this.description);
-					const now = timeconvert(new Date(rawPalertData.time)).format("YYYY/MM/DD HH:mm:ss");
-					const msg = {
-						username   : "TREMV | 臺灣即時地震監測變體",
-						avatar_url : "https://avatars.githubusercontent.com/u/91672109?s=128",
-						content    : setting["tts.Notification"] ? ((rawPalertData.final ? "PAlert最終報" : "PAlert") + "時間" + now + "觸發測站" + rawPalertData.tiggered + "台" + this.description) : "PAlert",
-						tts        : setting["tts.Notification"],
-						embeds     : [
-							{
-								author: {
-									name     : rawPalertData.final ? "PAlert(最終報)" : "PAlert",
-									url      : rawPalertData.link,
-									icon_url : undefined,
-								},
-								description : this.description,
-								fields      : [
-									{
-										name   : "時間",
-										value  : now,
-										inline : true,
-									},
-									{
-										name   : "觸發測站",
-										value  : `${rawPalertData.tiggered}台`,
-										inline : true,
-									},
-								],
-							},
-						],
-					};
-					sendWebhook(setting["webhook.url"], msg).catch((error) => {
-						log(error, 3, "Webhook", "palert");
-						dump({ level: 2, message: error, origin: "Webhook" });
-					});
-				}
-
-				if (palert_geojson == null) {
-					this.isTriggered = true;
-					changeView("main", "#mainView_btn");
-
-					if (setting["Real-time.show"]) win.showInactive();
-
-					if (setting["Real-time.cover"])
-						if (!win.isFullScreen()) {
-							win.setAlwaysOnTop(true);
-							win.focus();
-							win.setAlwaysOnTop(false);
-						}
-
-					if (!win.isFocused()) win.flashFrame(true);
-
-					if (setting["audio.PAlert"]) {
-						log("Playing Audio > palert", 1, "Audio", "palert");
-						dump({ level: 0, message: "Playing Audio > palert", origin: "Audio" });
-						TREM.Audios.palert.play();
-					}
-				} else {
-					palert_geojson.remove();
-				}
-
-				palert_geojson = L.geoJson.vt(MapData.tw_town, {
-					minZoom   : 4,
-					maxZoom   : 15,
-					tolerance : 20,
-					buffer    : 256,
-					debug     : 0,
-					zIndex    : 5,
-					style     : (properties) => {
-						const name = properties.TOWNCODE;
-
-						if (PLoc[name] == 0 || PLoc[name] == undefined)
-							return {
-								color       : "transparent",
-								weight      : 0,
-								opacity     : 0,
-								fillColor   : "transparent",
-								fillOpacity : 0,
-							};
-						return {
-							color       : TREM.Colors.secondary,
-							weight      : 0.8,
-							fillColor   : TREM.color(PLoc[name]),
-							fillOpacity : 1,
-						};
-					},
-				}).addTo(Maps.main);
-				setTimeout(() => {
-					ipcRenderer.send("screenshotEEW", {
-						Function : "palert",
-						ID       : 1,
-						Version  : 1,
-						Time     : NOW().getTime(),
-						Shot     : 1,
-					});
-				}, 1250);
-			}
-
-			if (this.timer)
-				this.timer.refresh();
-			else
-				this.timer = setTimeout(this.clear, 600_000);
-		}
-	},
 	expected(expected) {
 		const int = new Map();
 		const PLoc = {};
@@ -4523,8 +4322,6 @@ function FCMdata(json, Unit) {
 		if (speecd_use) TREM.speech.speak({ text: `海嘯資訊${Now0} ${json.location} 發生 ${json.scale.replace(".", "點")} 地震` });
 	} else if (json.type == "tsunami") {
 		TREM.Earthquake.emit("tsunami", json);
-	// } else if (json.type == "palert") {
-	// 	TREM.MapIntensity.palert(json);
 	// } else if (json.type == "palert-app") {
 	// 	console.debug(json);
 	} else if (json.type == "pws") {
@@ -4547,8 +4344,6 @@ function FCMdata(json, Unit) {
 
 		if (json.author == "cwa")
 			ipcRenderer.send("config:value", "intensity.cwa", filename.toString());
-		else if (json.author == "palert")
-			ipcRenderer.send("config:value", "intensity.palert", filename.toString());
 		else if (json.author == "trem")
 			ipcRenderer.send("config:value", "intensity.trem", filename.toString());
 
@@ -4701,13 +4496,14 @@ function FCMdata(json, Unit) {
 
 
 		if (json.author) {
+			// NIED、四川、福建已不再提供，一律不收
 			if (
-				(json.author == "scdzj" && !setting["accept.eew.SCDZJ"])
-				|| (json.author == "nied" && !setting["accept.eew.NIED"])
+				json.author == "scdzj"
+				|| json.author == "nied"
 				|| (json.author == "jma" && !setting["accept.eew.JMA"])
 				|| (json.author == "kma" && !setting["accept.eew.KMA"])
 				|| ((json.author == "cwa" || json.author == "cwb") && !setting["accept.eew.CWA"])
-				|| (json.author == "fjdzj" && !setting["accept.eew.FJDZJ"])
+				|| json.author == "fjdzj"
 				|| (json.author == "trem" && !setting["accept.eew.trem"])
 			) return;
 
@@ -4723,12 +4519,12 @@ function FCMdata(json, Unit) {
 												: (json.Unit) ? json.Unit : "";
 		} else {
 			if (
-				(json.type == "eew-scdzj" && !setting["accept.eew.SCDZJ"])
-				|| (json.type == "eew-nied" && !setting["accept.eew.NIED"])
+				json.type == "eew-scdzj"
+				|| json.type == "eew-nied"
 				|| (json.type == "eew-jma" && !setting["accept.eew.JMA"])
 				|| (json.type == "eew-kma" && !setting["accept.eew.KMA"])
 				|| (json.type == "eew-cwb" && !setting["accept.eew.CWA"])
-				|| (json.type == "eew-fjdzj" && !setting["accept.eew.FJDZJ"])
+				|| json.type == "eew-fjdzj"
 				|| (json.type == "trem-eew" && !setting["accept.eew.trem"])
 			) return;
 
