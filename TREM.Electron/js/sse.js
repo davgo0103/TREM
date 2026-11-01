@@ -19,14 +19,16 @@ class SSEStream {
 	 * @param {(text: string) => void} [options.onComment] 心跳等註解行（": ping 1793509101"）
 	 * @param {(message: string, level: number) => void} [options.log]
 	 * @param {number} [options.reconnectDelay]
+	 * @param {Record<string, string>} [options.headers] 額外的請求 Header
 	 */
-	constructor({ label, url, onEvent, onComment = () => void 0, log = () => void 0, reconnectDelay = 3_000 }) {
+	constructor({ label, url, onEvent, onComment = () => void 0, log = () => void 0, reconnectDelay = 3_000, headers = {} }) {
 		this.label = label;
 		this.url = url;
 		this.onEvent = onEvent;
 		this.onComment = onComment;
 		this.log = log;
 		this.reconnectDelay = reconnectDelay;
+		this.headers = headers;
 		this.failures = 0;
 		this.conn = null;
 		this.retryTimer = null;
@@ -123,7 +125,7 @@ class SSEStream {
 		(async () => {
 			touch();
 			const res = await fetch(resolve(balancedUrl), {
-				headers : { Accept: "text/event-stream", "Cache-Control": "no-cache" },
+				headers : { Accept: "text/event-stream", "Cache-Control": "no-cache", ...this.headers },
 				cache   : "no-store",
 				signal  : controller.signal,
 			});

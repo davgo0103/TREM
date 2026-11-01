@@ -1,8 +1,7 @@
 const { getCurrentWindow } = require("@electron/remote");
 const echarts = require("echarts");
-const Route = require("../js/route.js");
 const { fetchStationList } = require("../js/station_list.js");
-const route = new Route();
+const { SSEStream } = require("../js/sse.js");
 const win = getCurrentWindow();
 
 document.onreadystatechange = () => {
@@ -41,15 +40,6 @@ function handleWindowControls() {
 }
 
 const wave_count = +localStorage.getItem("displayWaveCount") ?? 12;
-let ws;
-
-if (app.Configuration.data["rtw.key.only"]) {
-	console.log(`lb-${route.auto_run()}`);
-	ws = new WebSocket(route.randomWSBaseUrl());
-}
-
-let Reconnect = 0;
-
 let Realtimestation = app.Configuration.data["Real-time.station"];
 let Realtimestation1 = app.Configuration.data["Real-time.station.1"];
 let Realtimestation2 = app.Configuration.data["Real-time.station.2"];
@@ -70,100 +60,86 @@ let chartuuids = [
 	Realtimestation,
 ];
 
-let ServerT_rtw = 0;
+// 波形來源：ES-Net 公開的 SSE，每個測站一條連線，Header 帶 key: 測站ID（參考 ExpTechTW/ES-Net-Wave）
+const WAVE_SSE_URL = "https://bamboo.exptech.dev/api/sse/esnet";
+const WAVE_WINDOW_MS = 120_000;
+const wave_streams = new Map();
 
-function reconnect() {
-	if (Date.now() - Reconnect < 500) return;
-	Reconnect = Date.now();
+/**
+ * 解析一筆波形資料「測站ID~base64」。0x10 為三軸加速度（gal，50 Hz，每包約 0.5 秒）：
+ * [0]=0x10 [1]=筆數 [2..9]=時間（ms，uint64 LE） 之後每筆 x、y、z 各一個 float32 LE。
+ * 0x11（震度與 PGA）不需要，略過。
+ */
+function parseWavePacket(text) {
+	const [id, payload] = text.split("~");
 
-	if (ws != null) {
-		ws.close();
-		ws = null;
+	if (!payload) return null;
+
+	const bytes = Buffer.from(payload, "base64");
+
+	if (bytes.length < 10 || bytes[0] !== 0x10) return null;
+
+	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	const count = bytes[1];
+	const X = [];
+	const Y = [];
+	const Z = [];
+
+	for (let i = 0, offset = 10; i < count && offset + 12 <= bytes.length; i++, offset += 12) {
+		X.push(view.getFloat32(offset, true));
+		Y.push(view.getFloat32(offset + 4, true));
+		Z.push(view.getFloat32(offset + 8, true));
 	}
 
-	console.log(`lb-${route.auto_run()} ${route.auto_run_global_url()}`);
-	ws = new WebSocket(route.randomWSBaseUrl());
-	connect(1000);
+	return { id, time: Number(view.getBigUint64(2, true)), X, Y, Z };
 }
 
-const connect = (retryTimeout) => {
-	ws.onclose = function() {
-		ServerT_rtw = 1;
-		console.log(`WebSocket closed. Reconnect after ${retryTimeout / 1000}s`);
-	};
+/** 依目前設定的測站開關波形連線：新的測站開連線，不再使用的關掉。 */
+function syncWaveStreams() {
+	const ids = new Set([
+		Realtimestation1,
+		Realtimestation2,
+		Realtimestation3,
+		Realtimestation4,
+		Realtimestation5,
+		Realtimestation,
+	]
+		.map((uuid) => uuid?.split("-")[2])
+		.filter(Boolean));
 
-	ws.onerror = function(err) {
-		ServerT_rtw = 1;
-		console.log(err);
-	};
-
-	ws.onopen = function() {
-		const key = app.Configuration.data["rtw.key.only"] ? (app.Configuration.data["rtw.exptech.key"] != "" ? app.Configuration.data["rtw.exptech.key"] : "") : (app.Configuration.data["exptech.key"] != "" ? app.Configuration.data["exptech.key"] : "");
-		ws.send(JSON.stringify({
-			type    : "start",
-			key     : key,
-			service : ["trem.rtw"],
-			config  : {
-				"trem.rtw": [
-					parseInt(Realtimestation1.split("-")[2]),
-					parseInt(Realtimestation2.split("-")[2]),
-					parseInt(Realtimestation3.split("-")[2]),
-					parseInt(Realtimestation4.split("-")[2]),
-					parseInt(Realtimestation5.split("-")[2]),
-					parseInt(Realtimestation.split("-")[2]),
-				],
-			},
-		}));
-	};
-
-	ws.onmessage = function(raw) {
-		const parsed = JSON.parse(raw.data);
-
-		// console.log(parsed);
-
-		switch (parsed.type) {
-			case "verify":
-				// eslint-disable-next-line no-case-declarations
-				const key = app.Configuration.data["rtw.key.only"] ? (app.Configuration.data["rtw.exptech.key"] != "" ? app.Configuration.data["rtw.exptech.key"] : "") : (app.Configuration.data["exptech.key"] != "" ? app.Configuration.data["exptech.key"] : "");
-				ws.send(JSON.stringify({
-					type    : "start",
-					key     : key,
-					service : ["trem.rtw"],
-					config  : {
-						"trem.rtw": [
-							parseInt(Realtimestation1.split("-")[2]),
-							parseInt(Realtimestation2.split("-")[2]),
-							parseInt(Realtimestation3.split("-")[2]),
-							parseInt(Realtimestation4.split("-")[2]),
-							parseInt(Realtimestation5.split("-")[2]),
-							parseInt(Realtimestation.split("-")[2]),
-						],
-					},
-				}));
-				break;
-			case "data": {
-				switch (parsed.data.type) {
-					case "rtw": {
-						ServerT_rtw = Date.now();
-						wave(parsed.data);
-						break;
-					}
-				}
-
-				break;
-			}
-
-			default: break;
+	for (const [id, stream] of wave_streams)
+		if (!ids.has(id)) {
+			stream.stop();
+			wave_streams.delete(id);
 		}
-	};
-};
+
+	for (const id of ids) {
+		if (wave_streams.has(id)) continue;
+
+		const stream = new SSEStream({
+			label   : `wave ${id}`,
+			url     : () => WAVE_SSE_URL,
+			headers : { key: id },
+			onEvent : (event, text) => {
+				const packet = parseWavePacket(text);
+
+				if (packet?.id === id) wave(packet);
+			},
+			log: (message, level) => {
+				if (level >= 2) console.warn(message);
+			},
+		});
+		stream.start();
+		wave_streams.set(id, stream);
+	}
+}
 
 const data = {
 	stations: {},
 };
 const timer = {};
 
-const Real_time_station_run = (_data) => {
+const Real_time_station_run = () => {
 	chartuuids = [
 		Realtimestation1,
 		Realtimestation2,
@@ -175,20 +151,6 @@ const Real_time_station_run = (_data) => {
 		Realtimestation,
 	];
 
-	if (app.Configuration.data["rtw.key.only"]) {
-		const key = app.Configuration.data["rtw.key.only"] ? (app.Configuration.data["rtw.exptech.key"] != "" ? app.Configuration.data["rtw.exptech.key"] : "") : (app.Configuration.data["exptech.key"] != "" ? app.Configuration.data["exptech.key"] : "");
-		ws.send(JSON.stringify({
-			type    : "start",
-			key     : key,
-			service : ["trem.rtw"],
-			config  : {
-				"trem.rtw": _data,
-			},
-		}));
-	} else {
-		ipcRenderer.send("apikey", _data);
-	}
-
 	setCharts([
 		Realtimestation1.split("-")[2],
 		Realtimestation2.split("-")[2],
@@ -199,6 +161,7 @@ const Real_time_station_run = (_data) => {
 		Realtimestation.split("-")[2],
 		Realtimestation.split("-")[2],
 	]);
+	syncWaveStreams();
 };
 
 const Real_time_station = () => {
@@ -387,7 +350,7 @@ const setCharts = (ids) => {
 					},
 				});
 		} else {
-			chartuuids.splice(i, 1);
+			chartuuids[i] = null;
 			charts[i].clear();
 			charts[i].setOption({
 				title: {
@@ -432,128 +395,59 @@ const setCharts = (ids) => {
 };
 
 const wave = (wave_data) => {
-	// console.log(wave_data);
-
-	// const time = wave_data.time;
-	const wave_data_id = wave_data.id;
 	const n = wave_data.Z.length;
-	const timeOffset = 500 / n;
-	const now = new Date(Date.now());
-	const time = Date.now();
 
-	// const arr = [];
+	if (!n) return;
 
-	let id;
+	const step = 500 / n;
+	const cutoff = wave_data.time + 500 - WAVE_WINDOW_MS;
 
-	for (const i in chartuuids)
-		if (parseInt(chartuuids[i].split("-")[2]) === wave_data_id)
-			id = i;
-
-	if (parseInt(Realtimestation.split("-")[2]) === wave_data_id)
-		id = 10;
-
-	if (id == 10) {
-		for (let i = 0; i < n; i++) {
-			const calculatedTime = time + (i * timeOffset);
-			chartdata[5].push({
-				name  : now.getTime(),
-				value : [new Date(calculatedTime).getTime(), Math.round(+wave_data.X[i] * 1000)],
+	const draw = (j, values) => {
+		for (let i = 0; i < n; i++)
+			chartdata[j].push({
+				name  : wave_data.time,
+				value : [wave_data.time + i * step, Math.round(values[i] * 1000) / 1000],
 			});
-			chartdata[6].push({
-				name  : now.getTime(),
-				value : [new Date(calculatedTime).getTime(), Math.round(+wave_data.Y[i] * 1000)],
-			});
-			chartdata[7].push({
-				name  : now.getTime(),
-				value : [new Date(calculatedTime).getTime(), Math.round(+wave_data.Z[i] * 1000)],
-			});
-		}
 
-		for (let j = 5; j < 8; j++) {
-			while (true)
-				if (chartdata[j].length > (chartuuids[6].startsWith("H") ? 5950 : 2380)) {
-					chartdata[j].shift();
-				} else if (chartdata[j].length == (chartuuids[6].startsWith("H") ? 5950 : 2380)) {
-					break;
-				} else if (chartdata[j].length != (chartuuids[6].startsWith("H") ? 5950 : 2380)) {
-					chartdata[j].shift();
-					chartdata[j].unshift({
-						name  : new Date(time - 120_000).getTime(),
-						value : [new Date(time - 120_000).getTime(), null],
-					});
-					break;
-				}
+		while (chartdata[j].length && chartdata[j][0].value[0] < cutoff)
+			chartdata[j].shift();
 
-			const values = chartdata[j].map(v => v.value[1]);
-			const maxmin = Math.max(Math.abs(Math.max(...values)), Math.abs(Math.min(...values)));
+		// 未滿兩分鐘時在最前面補一個空點，讓 X 軸固定顯示兩分鐘
+		if (!chartdata[j].length || chartdata[j][0].value[0] > cutoff)
+			chartdata[j].unshift({ name: cutoff, value: [cutoff, null] });
 
-			charts[j].setOption({
-				animation : false,
-				yAxis     : {
-					max : maxmin < (chartuuids[6].startsWith("H") ? 1 : 1000) ? (chartuuids[6].startsWith("H") ? 1 : 1000) : maxmin,
-					min : -(maxmin < (chartuuids[6].startsWith("H") ? 1 : 1000) ? (chartuuids[6].startsWith("H") ? 1 : 1000) : maxmin),
-				},
-				series: [
-					{
-						type : "line",
-						data : chartdata[j],
-					},
-				],
-			});
-		}
-	} else if (chartdata[id]) {
-		for (let i = 0; i < n; i++) {
-			const calculatedTime = time + (i * timeOffset);
-			chartdata[id].push({
-				name  : now.getTime(),
-				value : [new Date(calculatedTime).getTime(), Math.round(+wave_data.Z[i] * 1000)],
-			});
-		}
+		// Y 軸範圍取最大振幅並往上取到 0.5 的倍數（刻度較整齊），最小 ±1 gal
+		let peak = 0;
 
-		while (true)
-			if (chartdata[id].length > (chartuuids[id].startsWith("H") ? 5950 : 2380)) {
-				chartdata[id].shift();
-			} else if (chartdata[id].length == (chartuuids[id].startsWith("H") ? 5950 : 2380)) {
-				break;
-			} else if (chartdata[id].length != (chartuuids[id].startsWith("H") ? 5950 : 2380)) {
-				chartdata[id].shift();
-				chartdata[id].unshift({
-					name  : new Date(time - 120_000).getTime(),
-					value : [new Date(time - 120_000).getTime(), null],
-				});
-				break;
-			}
+		for (const v of chartdata[j])
+			if (v.value[1] != null && Math.abs(v.value[1]) > peak) peak = Math.abs(v.value[1]);
 
-		const values = chartdata[id].map(v => v.value[1]);
-		const maxmin = Math.max(Math.abs(Math.max(...values)), Math.abs(Math.min(...values)));
+		const maxmin = Math.max(1, Math.ceil(peak * 2) / 2);
 
-		charts[id].setOption({
+		charts[j].setOption({
 			animation : false,
-			yAxis     : {
-				max : maxmin < (chartuuids[id].startsWith("H") ? 1 : 1000) ? (chartuuids[id].startsWith("H") ? 1 : 1000) : maxmin,
-				min : -(maxmin < (chartuuids[id].startsWith("H") ? 1 : 1000) ? (chartuuids[id].startsWith("H") ? 1 : 1000) : maxmin),
-			},
-			series: [
+			yAxis     : { max: maxmin, min: -maxmin },
+			series    : [
 				{
-					type : "line",
-					data : chartdata[id],
+					type     : "line",
+					sampling : "lttb",
+					data     : chartdata[j],
 				},
 			],
 		});
+	};
+
+	for (let j = 0; j < 5; j++)
+		if (chartuuids[j]?.split("-")[2] === wave_data.id) draw(j, wave_data.Z);
+
+	if (Realtimestation?.split("-")[2] === wave_data.id) {
+		draw(5, wave_data.X);
+		draw(6, wave_data.Y);
+		draw(7, wave_data.Z);
 	}
 };
 
 async function init() {
-	if (app.Configuration.data["rtw.key.only"]) {
-		connect(1000);
-
-		if (!timer.WS_rtw)
-			timer.WS_rtw = setInterval(() => {
-				if ((Date.now() - ServerT_rtw > 3_000 && ServerT_rtw != 0)) reconnect();
-				else if (ServerT_rtw == 0) reconnect();
-			}, 3000);
-	}
-
 	await (async () => {
 		await fetch_files();
 
@@ -616,9 +510,6 @@ async function init() {
 				},
 			],
 		});
-}
 
-ipcRenderer.on("rtw", (event, _data) => {
-	if (!app.Configuration.data["rtw.key.only"])
-		wave(_data);
-});
+	syncWaveStreams();
+}
