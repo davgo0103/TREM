@@ -43,11 +43,12 @@ function host(balanced) {
 	return s ? s.nodes[s.active] : balanced;
 }
 
-/** 把網址裡的平衡名稱換成使用中的節點。 */
-function resolve(url) {
+/** 把網址裡的平衡名稱換成使用中的節點；offset 不為 0 時改用其後第 offset 個節點（重試換節點用）。 */
+function resolve(url, offset = 0) {
 	const u = new URL(url);
+	const s = state[u.hostname];
 
-	if (state[u.hostname]) u.hostname = host(u.hostname);
+	if (s) u.hostname = s.nodes[(s.active + offset) % s.nodes.length];
 
 	return u.toString();
 }
@@ -88,16 +89,29 @@ function report(url, ok) {
 		switchTo(balanced, (s.active + 1) % s.nodes.length, `${FAILS_TO_SWITCH} failures in a row`);
 }
 
-/**
- * 帶逾時與節點切換的 fetch。預設 cache: "no-cache"，讓瀏覽器用 ETag 重新驗證，
- * 沒變的資料只會拿到 304。
- */
-async function apiFetch(url, { timeout = 5_000, ...options } = {}) {
+const MAX_ATTEMPTS = 3;
+const RETRY_AFTER_CAP_MS = 10_000;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const shouldRetry = (status) => status >= 500 || status === 429;
+
+/** Retry-After（秒數或 HTTP 日期）轉成毫秒，最多 RETRY_AFTER_CAP_MS；沒有時回傳 null。 */
+function retryAfterMs(res) {
+	const value = res.headers.get("retry-after");
+
+	if (!value) return null;
+
+	const ms = /^\d+$/.test(value) ? +value * 1000 : Date.parse(value) - Date.now();
+
+	return Number.isFinite(ms) ? Math.min(Math.max(ms, 0), RETRY_AFTER_CAP_MS) : null;
+}
+
+async function fetchOnce(url, offset, timeout, options) {
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), timeout);
 
 	try {
-		const res = await fetch(resolve(url), { cache: "no-cache", ...options, signal: controller.signal });
+		const res = await fetch(resolve(url, offset), { cache: "no-cache", ...options, signal: controller.signal });
 		report(url, res.status < 500);
 		return res;
 	} catch (err) {
@@ -106,6 +120,42 @@ async function apiFetch(url, { timeout = 5_000, ...options } = {}) {
 	} finally {
 		clearTimeout(timer);
 	}
+}
+
+/**
+ * 帶逾時、節點切換與重試的 fetch（參考 TREM-Lite lib/http/webBackend.ts）。
+ * 預設 cache: "no-cache"，讓瀏覽器用 ETag 重新驗證，沒變的資料只會拿到 304。
+ * GET 遇到 5xx、429 或沒有回應時重試，最多 MAX_ATTEMPTS 次：第一次重試立即換另一個
+ * 區域節點，之後以指數退避（含隨機抖動）等待，並遵守 Retry-After。
+ */
+async function apiFetch(url, { timeout = 5_000, ...options } = {}) {
+	const retryable = !options.method || options.method.toUpperCase() === "GET";
+	let lastError = null;
+	let lastResponse = null;
+	let wait = 0;
+
+	for (let attempt = 0; attempt < (retryable ? MAX_ATTEMPTS : 1); attempt++) {
+		if (wait) await sleep(wait);
+
+		try {
+			lastResponse = await fetchOnce(url, attempt, timeout, options);
+
+			if (!shouldRetry(lastResponse.status)) return lastResponse;
+
+			lastError = null;
+			wait = retryAfterMs(lastResponse);
+		} catch (err) {
+			lastError = err;
+			wait = null;
+		}
+
+		// 第一次重試直接換節點，不等待；之後 0.5 秒、1 秒……加上抖動
+		wait ??= attempt === 0 ? 0 : 500 * 2 ** (attempt - 1) + Math.random() * 250;
+	}
+
+	if (lastError) throw lastError;
+
+	return lastResponse;
 }
 
 async function probeNode(node, path) {

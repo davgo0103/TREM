@@ -800,15 +800,9 @@ async function init() {
 
 	// TREM.MapRenderingEngine = setting["map.engine"];
 
+	// 啟動時沒有網路也照常啟動，網路恢復後串流會自動連上
 	if (!window.navigator.onLine)
-		return showDialog(
-			"error",
-			TREM.Localization.getString("Initialization_No_Connection_Title"),
-			TREM.Localization.getString("Initialization_No_Connection_Description"),
-			0, "wifi_off", () => {
-				ipcRenderer.send("restart");
-			},
-		);
+		log("Starting offline, streams will connect when the network is back", 2, "Initialization", "init");
 
 	// Connect to server
 	try {
@@ -849,10 +843,11 @@ async function init() {
 
 		if (!Timers.clock)
 			Timers.clock = setInterval(() => {
-				if (TimerDesynced && replayTemp == 0 && replay == 0) {
+				if (isRtsDesynced() && replayTemp == 0 && replay == 0) {
 					if (!time.classList.contains("desynced"))
 						time.classList.add("desynced");
-					const now_f = now_format(NOW());
+					// 停在最後收到即時資料的時間，一眼看出資料從何時中斷
+					const now_f = now_format(rts_response?.time ? new Date(rts_response.time) : NOW());
 					time.innerText = `${now_f}`;
 					time1.innerText = `${now_f}`;
 				} else if (replayTemp) {
@@ -1543,7 +1538,7 @@ function PGAMain() {
 							const t0 = Math.abs((rts_response.Time ?? rts_response.time) - NOW().getTime());
 
 							if (!rts_key_verify) {
-								Ping = `🔒 ${(Math.abs((rts_response.Time ?? rts_response.time) - NOW().getTime()) / 1000).toFixed(1)}s`;
+								Ping = `🔒 ${rtsAge()}s`;
 								Response = rts_response;
 							} else if (rts_key_verify) {
 								if (t0 < 1500) Ping = `⚡ ${(t0 / 1000).toFixed(1)}s`;
@@ -1575,7 +1570,7 @@ function PGAMain() {
 							const t0 = Math.abs((rts_response_new.Time ?? rts_response_new.time) - NOW().getTime());
 
 							if (!rts_key_verify) {
-								Ping = `🔒 ${(Math.abs((rts_response.Time ?? rts_response.time) - NOW().getTime()) / 1000).toFixed(1)}s`;
+								Ping = `🔒 ${rtsAge()}s`;
 								Response = rts_response;
 							} else if (rts_key_verify) {
 								if (t0 < 1500) Ping = `⚡ ${(t0 / 1000).toFixed(1)}s`;
@@ -1728,7 +1723,7 @@ function PGAMainbkup() {
 							const t1 = Math.abs((rts_response.Time ?? rts_response.time) - NOW().getTime());
 
 							if (!rts_key_verify) {
-								Ping = `🔒 ${(Math.abs((rts_response.Time ?? rts_response.time) - NOW().getTime()) / 1000).toFixed(1)}s`;
+								Ping = `🔒 ${rtsAge()}s`;
 								Response = rts_response;
 							} else if (rts_key_verify) {
 								if (t1 < 1500) Ping = `⚡ ${(t1 / 1000).toFixed(1)}s`;
@@ -1760,7 +1755,7 @@ function PGAMainbkup() {
 							const t1 = Math.abs((rts_response_new.Time ?? rts_response_new.time) - NOW().getTime());
 
 							if (!rts_key_verify) {
-								Ping = `🔒 ${(Math.abs((rts_response.Time ?? rts_response.time) - NOW().getTime()) / 1000).toFixed(1)}s`;
+								Ping = `🔒 ${rtsAge()}s`;
 								Response = rts_response;
 							} else if (rts_key_verify) {
 								if (t1 < 1500) Ping = `⚡ ${(t1 / 1000).toFixed(1)}s`;
@@ -4212,7 +4207,6 @@ TREM.color = function color(Intensity) {
 };
 // #endregion
 
-let eew_clock = null;
 
 // #region IPC
 ipcRenderer.on("start", () => {
@@ -4454,6 +4448,86 @@ let rts_background = isMainWindowHidden();
 let trem_sse = null;
 let eew_sse = null;
 
+// 速報與震度速報的去重（參考 TREM-Lite features/data/data.ts）：
+// 記住每個 id 收到過的最大報數，結束後仍保留一段時間，避免重連或串流重送時被當成新的再觸發一次
+const EEW_EXPIRY_MS = 240_000;
+const INTENSITY_EXPIRY_MS = 600_000;
+const eew_last = new Map();
+const intensity_last = new Map();
+
+/** 速報是否該處理：發震超過 240 秒、或同一報已處理過的略過。 */
+function acceptEew(e) {
+	const now = realNow();
+
+	if (!e.eq?.time || now - e.eq.time > EEW_EXPIRY_MS) {
+		// 伺服器仍當成生效中（發布時距發震 240 秒內），本機卻判為過期：時鐘可能不準
+		if (e.time && e.eq?.time && e.time - e.eq.time <= EEW_EXPIRY_MS)
+			log(`Skip EEW ${e.id} #${e.serial}: local clock is ${Math.round((now - e.time) / 1000)}s behind its issue time, clock may be wrong`, 2, "server", "eew-sse");
+
+		return false;
+	}
+
+	const last = eew_last.get(e.id);
+
+	if (last && last.serial >= e.serial) return false;
+
+	eew_last.set(e.id, { serial: e.serial, time: now });
+	return true;
+}
+
+/** 震度速報是否該處理：超過 10 分鐘、同一報、或新報數但範圍沒變的略過。 */
+function acceptIntensity(report) {
+	const now = realNow();
+
+	if (now - report.id > INTENSITY_EXPIRY_MS) return false;
+
+	const areaKey = JSON.stringify(Object.keys(report.area).sort().map((level) => [level, [...report.area[level]].sort()]));
+	const last = intensity_last.get(report.id);
+
+	if (last && last.serial >= report.serial) return false;
+
+	intensity_last.set(report.id, { serial: report.serial, areaKey, time: now });
+
+	return !last || last.areaKey !== areaKey;
+}
+
+setInterval(() => {
+	const now = realNow();
+
+	for (const [id, v] of eew_last) if (now - v.time > EEW_EXPIRY_MS * 2) eew_last.delete(id);
+
+	for (const [id, v] of intensity_last) if (now - v.time > INTENSITY_EXPIRY_MS * 2) intensity_last.delete(id);
+}, 60_000);
+
+// 斷線或睡眠喚醒後自動恢復：網路回來時立即重開串流（新連線就緒後才關舊的），不再要求重新啟動
+window.addEventListener("offline", () => log("Network offline, streams will reconnect when it is back", 2, "server", "network"));
+window.addEventListener("online", () => {
+	log("Network online, reconnecting streams", 1, "server", "network");
+	trem_sse?.switchUrl();
+	eew_sse?.switchUrl();
+	checkNewestReport();
+});
+
+// 距離上一筆即時資料的秒數（本機收到時間），尚未收到時顯示 --
+const rtsAge = () => (rts_response?.Time ? ((Date.now() - rts_response.Time) / 1000).toFixed(1) : "--");
+
+/**
+ * 即時資料是否中斷（參考 TREM-Lite）：即時模式超過 3 秒沒有新資料，
+ * 或串流連線中斷超過 3 秒（背景模式平常就沒有資料，只看連線）。
+ */
+let rts_disconnected_since = 0;
+
+function isRtsDesynced() {
+	if (!trem_sse || trem_sse.stopped) return false;
+
+	if (trem_sse.connected) rts_disconnected_since = 0;
+	else rts_disconnected_since ||= Date.now();
+
+	if (rts_disconnected_since && Date.now() - rts_disconnected_since > 3_000) return true;
+
+	return !rts_background && rts_ws_timestamp > 0 && Date.now() - rts_ws_timestamp > 3_000;
+}
+
 function onSSEHeartbeat(text) {
 	const ts = text.match(/^ping (\d+)/)?.[1];
 
@@ -4476,7 +4550,7 @@ function freertsget(rts_key_verify_f = false) {
 				} else if (event === "trem.intensity.v1") {
 					const report = readIntensityXml(decodeSSEText(data));
 
-					if (report) FCMdata(report, "sse");
+					if (report && acceptIntensity(report)) FCMdata(report, "sse");
 				}
 			},
 			onComment : onSSEHeartbeat,
@@ -4530,11 +4604,17 @@ function fetch_eew() {
 
 			HTTP = true;
 
-			for (const e of JSON.parse(data)) {
-				e.type = "eew";
-				e.timestamp = realNow();
-				FCMdata(e, ServerType = "http");
-			}
+			// 每筆各自處理，一筆出錯不影響同一批的其他速報
+			for (const e of JSON.parse(data))
+				try {
+					if (!acceptEew(e)) continue;
+
+					e.type = "eew";
+					e.timestamp = realNow();
+					FCMdata(e, ServerType = "http");
+				} catch (err) {
+					log(`EEW ${e?.id} failed: ${err}`, 3, "server", "eew-sse");
+				}
 		},
 		onComment : onSSEHeartbeat,
 		log       : (message, level) => {
@@ -4544,34 +4624,6 @@ function fetch_eew() {
 		},
 	});
 	eew_sse.start();
-
-	if (eew_clock) return;
-
-	eew_clock = setInterval(() => {
-		if (window.navigator.onLine) return;
-
-		clearInterval(eew_clock);
-		eew_clock = null;
-		trem_sse?.stop();
-		eew_sse?.stop();
-		clearInterval(ws_clock);
-		ws_clock = null;
-		clearInterval(ws_yayacat_clock);
-		ws_yayacat_clock = null;
-		ws = null;
-		ws_yayacat = null;
-		ServerT_Time = 0;
-		ServerT_yayacat = 0;
-		ServerT_yayacat_Time = 0;
-		showDialog(
-			"error",
-			TREM.Localization.getString("Initialization_No_Connection_Title"),
-			TREM.Localization.getString("Initialization_No_Connection_Description"),
-			0, "wifi_off", () => {
-				ipcRenderer.send("restart");
-			},
-		);
-	}, 1_000);
 }
 
 // 校時與區域節點探測（每 10 分鐘校時、每 30 秒探測，同 TREM-Lite）

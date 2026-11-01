@@ -35,6 +35,11 @@ class SSEStream {
 		this.stopped = true;
 	}
 
+	/** 目前的連線是否已收到伺服器回應且仍開著。 */
+	get connected() {
+		return Boolean(this.conn?.ready && !this.conn.closed);
+	}
+
 	start() {
 		if (!this.stopped) return;
 
