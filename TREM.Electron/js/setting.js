@@ -1480,7 +1480,7 @@ const webhook = async () => {
 				title       : "Webhook 測試",
 				description : "這是一則由 TREMV 發送的測試訊息\nDiscord 會附上目前主畫面的截圖，地震速報時也會附上",
 				color       : 0x3498db,
-				footer      : { text: "TREMV by 小蔡 | 資料來源：ExpTech、中央氣象署" },
+				footer      : { text: "ExpTech Studio" },
 				timestamp   : new Date().toISOString(),
 			},
 		],

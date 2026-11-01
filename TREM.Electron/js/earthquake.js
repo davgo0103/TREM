@@ -5442,17 +5442,17 @@ TREM.Earthquake.on("eew", (data) => {
 			let msg = setting["webhook.body"];
 			msg = msg.replace("%Depth%", data.depth == null ? "?" : data.depth).replaceAll("%NorthLatitude%", data.lat).replace("%Time%", showtime).replaceAll("%EastLongitude%", data.lon).replace("%location%", data.location).replace("%Scale%", data.scale == null ? "?" : data.scale).replace("%Number%", data.number).replace("%Final%", (data.final) ? "(最終報)" : "").replace("%Provider%", provider);
 
+			// 自訂內容沒有 username（用 Discord 上設定的名稱與頭像）或自帶 footer 時，照自訂的送
 			msg = JSON.parse(msg);
-			msg.username = "TREMV | 臺灣即時地震監測變體";
 
 			if (msg.embeds?.[0]) {
 				if (!msg.embeds[0].image?.url) delete msg.embeds[0].image;
 
-				msg.embeds[0].footer = {
-					text     : "TREMV by 小蔡 | 資料來源：ExpTech、中央氣象署",
+				const now = NOW();
+				msg.embeds[0].footer ??= {
+					text     : `ExpTech Studio ${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()} ${now.getHours()}:${now.getMinutes()}:${now.getSeconds()}`,
 					icon_url : "https://avatars.githubusercontent.com/u/91672109?s=128",
 				};
-				msg.embeds[0].timestamp = new Date(NOW().getTime()).toISOString();
 			}
 
 			msg.tts = setting["tts.Notification"];
