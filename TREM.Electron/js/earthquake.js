@@ -3550,6 +3550,8 @@ function startServices() {
 		freertsget();
 		fetch_eew();
 		fetch_ntp();
+		// 地震報告列表（原本由 winserver.jar 在啟動時呼叫）
+		ReportGET();
 
 		log("Services started", 1, "Initialization", "start");
 		dump({ level: 0, message: "Services started", origin: "Initialization" });
