@@ -647,10 +647,12 @@ TREM.Report = {
 		if (!report) return;
 
 		if (report.loc) {
-			// 下載按鈕目前在 MainView.html 中被註解掉，存在時才設定
-			const downloader = document.getElementById("report-replay-downloader");
+			// 重播與下載按鈕以 value 帶報告 ID
+			for (const id of ["report-replay", "report-replay-downloader"]) {
+				const button = document.getElementById(id);
 
-			if (downloader) downloader.value = report.id;
+				if (button) button.value = report.id;
+			}
 
 			if (!report.list) {
 				fetch(this.route.earthquakeReport(report.id))

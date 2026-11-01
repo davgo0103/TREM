@@ -298,7 +298,7 @@ TREM.MapIntensity = {
 					const now = timeconvert(new Date(rawPalertData.time)).format("YYYY/MM/DD HH:mm:ss");
 					const msg = {
 						username   : "TREMV | 臺灣即時地震監測變體",
-						avatar_url : "https://raw.githubusercontent.com/ExpTechTW/API/%E4%B8%BB%E8%A6%81%E7%9A%84-(main)/image/Icon/ExpTech.png",
+						avatar_url : "https://avatars.githubusercontent.com/u/91672109?s=128",
 						content    : setting["tts.Notification"] ? ((rawPalertData.final ? "PAlert最終報" : "PAlert") + "時間" + now + "觸發測站" + rawPalertData.tiggered + "台" + this.description) : "PAlert",
 						tts        : setting["tts.Notification"],
 						embeds     : [
@@ -3534,6 +3534,90 @@ TREM.color = function color(Intensity) {
 
 
 // #region IPC
+// 海嘯資訊（原本由舊 WebSocket 推送）：每 60 秒查詢氣象署海嘯報告列表，有新報告時轉成舊格式送進 FCMdata
+const TSUNAMI_LIST_URL = "https://api.core.exptech.dev/api/v1/cwa/tsunami";
+const TSUNAMI_POLL_MS = 60_000;
+const TSUNAMI_MAX_AGE_MS = 6 * 3600_000;
+const tsunami_predict = {};
+
+// API 的預估浪高（<1、1~3、3~6、>6，單位公尺）轉成 tsunami_color 使用的字串
+function tsunamiWaveLevel(height) {
+	const h = String(height).replace(/\s/g, "");
+
+	if (/^>6|大於6/.test(h)) return "大於6公尺";
+
+	if (/^3[~至-]6/.test(h)) return "3至6公尺";
+
+	if (/^1[~至-]3/.test(h)) return "1至3公尺";
+
+	return "小於1公尺";
+}
+
+/**
+ * 海嘯報告轉成舊格式 { type, number, cancel, lat, lon, time, area: [{ areaName, waveHeight, arrivalTime }] }。
+ * 預報（predict）的 area 是沿海分區；實測（observe）的是觀測站，沿用同一地震最後的預報分區上色。
+ */
+function toLegacyTsunami(detail) {
+	if (detail.data?.type === "predict")
+		tsunami_predict[detail.no] = detail.data.area.map(([
+			areaName, , waveHeight,
+			arrivalTime,
+		]) => ({
+			areaName,
+			waveHeight  : tsunamiWaveLevel(waveHeight),
+			arrivalTime : arrivalTime,
+		}));
+
+	return {
+		type      : "tsunami",
+		id        : detail.id,
+		number    : parseInt(String(detail.rep).replace(/\D/g, "")) || 1,
+		cancel    : detail.msgType === "Cancel",
+		lat       : detail.eq.lat,
+		lon       : detail.eq.lon,
+		time      : detail.eq.t,
+		area      : tsunami_predict[detail.no] ?? [],
+		timestamp : realNow(),
+	};
+}
+
+async function checkTsunami() {
+	try {
+		const res = await apiFetch(TSUNAMI_LIST_URL, { timeout: 5_000 });
+
+		if (!res.ok) return;
+
+		const { reports = [] } = await res.json();
+		const seen = new Set(JSON.parse(localStorage.tsunami_seen ?? "null") ?? []);
+		const firstRun = localStorage.tsunami_seen == undefined;
+		const fresh = reports
+			.filter((r) => !seen.has(r.id))
+			.sort((a, b) => a.sent - b.sent);
+
+		for (const r of fresh) {
+			seen.add(r.id);
+
+			// 第一次啟動只記錄既有報告，不提醒；也不提醒太舊的報告
+			if (firstRun || realNow() - r.sent > TSUNAMI_MAX_AGE_MS) continue;
+
+			const detailRes = await apiFetch(`${TSUNAMI_LIST_URL}/${r.id}`, { timeout: 5_000 });
+
+			if (!detailRes.ok) {
+				seen.delete(r.id);
+				continue;
+			}
+
+			const tsunami = toLegacyTsunami(await detailRes.json());
+			log(`Tsunami ${r.id} ${r.rep} ${r.type}`, 1, "Tsunami", "checkTsunami");
+			FCMdata(tsunami, "http");
+		}
+
+		localStorage.tsunami_seen = JSON.stringify([...seen].slice(-200));
+	} catch (err) {
+		log(err, 3, "Tsunami", "checkTsunami");
+	}
+}
+
 // 啟動即時資料、速報與校時（原本要等 winserver.jar 發出 start 才會執行）
 function startServices() {
 	try {
@@ -3549,6 +3633,8 @@ function startServices() {
 		fetch_ntp();
 		// 地震報告列表（原本由 winserver.jar 在啟動時呼叫）
 		ReportGET();
+		checkTsunami();
+		setInterval(checkTsunami, TSUNAMI_POLL_MS);
 
 		log("Services started", 1, "Initialization", "start");
 		dump({ level: 0, message: "Services started", origin: "Initialization" });
@@ -4048,7 +4134,7 @@ ipcRenderer.on("report-Notification", (event, report) => {
 			const report_list_length = Object.keys(report.list).length;
 			msg = {
 				username   : "TREMV | 臺灣即時地震監測變體",
-				avatar_url : "https://raw.githubusercontent.com/ExpTechTW/API/%E4%B8%BB%E8%A6%81%E7%9A%84-(main)/image/Icon/ExpTech.png",
+				avatar_url : "https://avatars.githubusercontent.com/u/91672109?s=128",
 				content    : setting["tts.Notification"] ? ("地震報告"
 				+ ((report_list_length != 0) ? "發生規模" + report.mag + "有感地震，最大震度" + report.Max_Level_areaName + report.Max_Level_stationName + IntensityI(report.Max_Level) + "級。" : "發生規模" + report.mag + "有感地震 ")
 				+ "編號"
@@ -4221,7 +4307,7 @@ ipcRenderer.on("intensity-Notification", (event, intensity) => {
 		const max_intensity = `${IntensityI(info.max)}級`;
 		const msg = {
 			username   : "TREMV | 臺灣即時地震監測變體",
-			avatar_url : "https://raw.githubusercontent.com/ExpTechTW/API/%E4%B8%BB%E8%A6%81%E7%9A%84-(main)/image/Icon/ExpTech.png",
+			avatar_url : "https://avatars.githubusercontent.com/u/91672109?s=128",
 			content    : setting["tts.Notification"] ? ("震度速報"
 			+ "資料來源" + info.author
 			+ (info.id != 0 ? "發震時間" : "接收時間") + (info.eq.time != 0 ? timeconvert(new Date(info.eq.time)).format("YYYY/MM/DD HH:mm:ss") : timeconvert(new Date(info.timestamp)).format("YYYY/MM/DD HH:mm:ss"))
@@ -4290,7 +4376,7 @@ ipcRenderer.on("update-available-Notification", (event, version, getVersion, inf
 			const getVersionbody = TREM.Localization.getString("Notification_Update_Body").format(getVersion, version) + `\nhttps://github.com/yayacat/TREM/releases/tag/v${version}`;
 			const msg = {
 				username   : "TREMV | 臺灣即時地震監測變體",
-				avatar_url : "https://raw.githubusercontent.com/ExpTechTW/API/%E4%B8%BB%E8%A6%81%E7%9A%84-(main)/image/Icon/ExpTech.png",
+				avatar_url : "https://avatars.githubusercontent.com/u/91672109?s=128",
 				embeds     : [
 					{
 						author      : { name: "TREMV | 臺灣即時地震監測變體" },
@@ -4325,7 +4411,7 @@ ipcRenderer.on("update-not-available-Notification", (event, version, getVersion)
 			const getVersionbody = TREM.Localization.getString("Notification_No_Update_Body").format(getVersion, version);
 			const msg = {
 				username   : "TREMV | 臺灣即時地震監測變體",
-				avatar_url : "https://raw.githubusercontent.com/ExpTechTW/API/%E4%B8%BB%E8%A6%81%E7%9A%84-(main)/image/Icon/ExpTech.png",
+				avatar_url : "https://avatars.githubusercontent.com/u/91672109?s=128",
 				embeds     : [
 					{
 						author      : { name: "TREMV | 臺灣即時地震監測變體" },
@@ -4661,7 +4747,7 @@ function FCMdata(json, Unit) {
 				|| (json.author == "nied" && !setting["accept.eew.NIED"])
 				|| (json.author == "jma" && !setting["accept.eew.JMA"])
 				|| (json.author == "kma" && !setting["accept.eew.KMA"])
-				|| (json.author == "cwb" && !setting["accept.eew.CWA"])
+				|| ((json.author == "cwa" || json.author == "cwb") && !setting["accept.eew.CWA"])
 				|| (json.author == "fjdzj" && !setting["accept.eew.FJDZJ"])
 				|| (json.author == "trem" && !setting["accept.eew.trem"])
 			) return;
@@ -5407,7 +5493,7 @@ TREM.Earthquake.on("eew", (data) => {
 				msg.embeds[0].image.url = "";
 				msg.embeds[0].footer = {
 					text     : `ExpTech Studio ${Now1}`,
-					icon_url : "https://raw.githubusercontent.com/ExpTechTW/API/master/image/Icon/ExpTech.png",
+					icon_url : "https://avatars.githubusercontent.com/u/91672109?s=128",
 				};
 				msg.tts = setting["tts.Notification"];
 				msg.content = setting["tts.Notification"] ? (showtime + "左右發生顯著有感地震東經" + data.lon + "北緯" + data.lat + "位於" + data.location + "深度" + (data.depth == null ? "?" : data.depth + "公里") + "規模" + (data.scale == null ? "?" : data.scale) + "第" + data.number + "報發報單位" + data.Unit + "慎防強烈搖晃，就近避難 [趴下、掩護、穩住]") : "";
@@ -5453,7 +5539,7 @@ TREM.Earthquake.on("eew", (data) => {
 				msg.embeds[0].image.url = "";
 				msg.embeds[0].footer = {
 					text     : `ExpTech Studio ${Now1}`,
-					icon_url : "https://raw.githubusercontent.com/ExpTechTW/API/master/image/Icon/ExpTech.png",
+					icon_url : "https://avatars.githubusercontent.com/u/91672109?s=128",
 				};
 				msg.tts = setting["tts.Notification"];
 				msg.content = setting["tts.Notification"] ? (showtime + "左右發生顯著有感地震東經" + data.lon + "北緯" + data.lat + "位於" + data.location + "深度" + (data.depth == null ? "?" : data.depth + "公里") + "規模" + (data.scale == null ? "?" : data.scale) + "第" + data.number + "報發報單位" + data.Unit + "慎防強烈搖晃，就近避難 [趴下、掩護、穩住]") : "";
@@ -5513,7 +5599,7 @@ TREM.Earthquake.on("trem-eq", (data) => {
 		// console.log(description);
 		const msg = {
 			username   : "TREMV | 臺灣即時地震監測變體",
-			avatar_url : "https://raw.githubusercontent.com/ExpTechTW/API/%E4%B8%BB%E8%A6%81%E7%9A%84-(main)/image/Icon/ExpTech.png",
+			avatar_url : "https://avatars.githubusercontent.com/u/91672109?s=128",
 			content    : setting["tts.Notification"] ? ((data.final ? "地震檢知(最終報)" : "地震檢知") + description) : "地震檢知",
 			tts        : setting["tts.Notification"],
 			embeds     : [
@@ -5564,7 +5650,7 @@ TREM.Earthquake.on("trem-eq", (data) => {
 		// console.log(description);
 		const msg = {
 			username   : "TREMV | 臺灣即時地震監測變體",
-			avatar_url : "https://raw.githubusercontent.com/ExpTechTW/API/%E4%B8%BB%E8%A6%81%E7%9A%84-(main)/image/Icon/ExpTech.png",
+			avatar_url : "https://avatars.githubusercontent.com/u/91672109?s=128",
 			content    : setting["tts.Notification"] ? ((data.final ? "地震檢知(最終報)" : "地震檢知") + description) : "地震檢知",
 			tts        : setting["tts.Notification"],
 			embeds     : [

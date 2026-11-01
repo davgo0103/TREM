@@ -368,7 +368,7 @@ const Constants = Object.freeze({
 			type  : "string",
 			value : JSON.stringify({
 				username   : "TREMV | 臺灣即時地震監測變體",
-				avatar_url : "https://raw.githubusercontent.com/ExpTechTW/API/%E4%B8%BB%E8%A6%81%E7%9A%84-(main)/image/Icon/ExpTech.png",
+				avatar_url : "https://avatars.githubusercontent.com/u/91672109?s=128",
 				embeds     : [
 					{
 						author: {

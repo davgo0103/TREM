@@ -1,4 +1,4 @@
-const { BrowserWindow, Menu, Notification, app: TREM, Tray, ipcMain, nativeImage, shell, dialog } = require("electron");
+const { BrowserWindow, Menu, Notification, app: TREM, Tray, ipcMain, nativeImage, shell, dialog, powerSaveBlocker } = require("electron");
 const Configuration = require("./Configuration/Configuration");
 const { autoUpdater } = require("electron-updater");
 const fs = require("fs");
@@ -18,6 +18,10 @@ autoUpdater.autoDownload = false;
 autoUpdater.autoInstallOnAppQuit = true;
 autoUpdater.logger = logger;
 TREM.commandLine.appendSwitch("disable-http2");
+// 縮到系統匣或被遮住時也要即時處理速報：關閉 Chromium 的背景降速與計時器節流（參考 TREM-Lite）
+TREM.commandLine.appendSwitch("disable-renderer-backgrounding");
+TREM.commandLine.appendSwitch("disable-background-timer-throttling");
+TREM.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 autoUpdater.requestHeaders = { "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" };
 
 /**
@@ -305,6 +309,8 @@ function downloadUpdate(cancellationToken) {
 }
 
 TREM.on("ready", () => {
+	// 防止系統暫停 App（不影響螢幕關閉與睡眠）
+	powerSaveBlocker.start("prevent-app-suspension");
 	cleanupDataFolder();
 
 	// 設定為不更新時完全不檢查
