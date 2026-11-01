@@ -5,6 +5,9 @@ const fs = require("fs");
 const os = require("os");
 const logger = require("electron-log");
 const path = require("path");
+
+// 安裝版的圖示在 app.asar 內，要用絕對路徑
+const APP_ICON = path.join(__dirname, "TREM.ico");
 const remote = require("@electron/remote/main");
 const get_Version = TREM.getVersion();
 
@@ -108,7 +111,7 @@ function createWindow() {
 		minHeight      : 720,
 		resizable      : true,
 		show           : false,
-		icon           : "TREM.ico",
+		icon           : APP_ICON,
 		webPreferences : {
 			nodeIntegration      : true,
 			contextIsolation     : false,
@@ -128,7 +131,8 @@ function createWindow() {
 	});
 
 	if (process.platform === "win32")
-		TREM.setAppUserModelId("TREMV | 臺灣即時地震監測變體");
+		// 與安裝程式建立的捷徑相同，工作列與通知才會用 TREMV 的圖示；開發版另用一組，避免 Windows 把 Electron 圖示記成 TREMV 的
+		TREM.setAppUserModelId(TREM.isPackaged ? "tw.exptech.tremv" : "tw.exptech.tremv.dev");
 	MainWindow.on("resize", () => {
 		MainWindow.webContents.invalidate();
 	});
@@ -160,7 +164,7 @@ function createSettingWindow() {
 		frame          : false,
 		transparent    : true,
 		show           : false,
-		icon           : "TREM.ico",
+		icon           : APP_ICON,
 		webPreferences : {
 			nodeIntegration      : true,
 			contextIsolation     : false,
@@ -190,7 +194,7 @@ function createRTSWindow() {
 		frame          : false,
 		transparent    : true,
 		show           : false,
-		icon           : "TREM.ico",
+		icon           : APP_ICON,
 		webPreferences : {
 			nodeIntegration      : true,
 			contextIsolation     : false,
@@ -223,7 +227,7 @@ function createIntensityWindow() {
 		minHeight      : 720,
 		resizable      : true,
 		show           : false,
-		icon           : "TREM.ico",
+		icon           : APP_ICON,
 		webPreferences : {
 			nodeIntegration      : true,
 			contextIsolation     : false,
@@ -376,7 +380,7 @@ autoUpdater.on("update-available", (info) => {
 		new Notification({
 			title : TREM.Localization.getString("Notification_Update_Title"),
 			body  : TREM.Localization.getString("Notification_Update_Body").format(get_Version, info.version),
-			icon  : "TREM.ico",
+			icon  : APP_ICON,
 		}).on("click", () => {
 			logger.info(info);
 			shell.openExternal(`https://github.com/davgo0103/TREM/releases/tag/v${info.version}`);
@@ -411,7 +415,7 @@ autoUpdater.on("update-not-available", (info) => {
 		new Notification({
 			title : TREM.Localization.getString("Notification_No_Update_Title"),
 			body  : TREM.Localization.getString("Notification_No_Update_Body").format(get_Version, info.version),
-			icon  : "TREM.ico",
+			icon  : APP_ICON,
 		}).show();
 		emitAllWindow("update-not-available-Notification", info.version, get_Version);
 	}
