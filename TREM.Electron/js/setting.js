@@ -533,47 +533,6 @@ function Real_time_alert_showDialog(runconstij) {
 		});
 }
 
-let runconstk = 0;
-let trem_eq_Notification;
-
-function trem_eq_Notification_run() {
-	trem_eq_Notification_showDialog(runconstk);
-
-	if (runconstk > 2) {
-		clearTimeout(trem_eq_Notification);
-	} else if (runconstk < 2) {
-		runconstk += 1;
-		trem_eq_Notification = setTimeout(() => {
-			document.getElementById("trem-eq.Notification").checked = true;
-			trem_eq_Notification_run();
-		}, 30_000);
-	}
-}
-
-function trem_eq_Notification_showDialog(runconstil) {
-	showDialog("warn",
-		TREM.Localization.getString("Setting_Dialog_trem_eq_Notification_Title"),
-		TREM.Localization.getString("Setting_Dialog_trem_eq_Notification_Description"),
-		1, "warning", () => {
-			if (runconstil == 2) {
-				const element = document.getElementById("trem-eq.alert.Notification");
-				element.checked = false;
-
-				if (is_setting_disabled) element.disabled = true;
-				else element.disabled = false;
-
-				ipcRenderer.send("config:value", "trem-eq.alert.Notification", false);
-				log(`Value Changed trem-eq.alert.Notification: ${setting["trem-eq.alert.Notification"]} -> false`, 1, "Setting", "CheckSave");
-				dump({ level: 0, message: `Value Changed trem-eq.alert.Notification: ${setting["trem-eq.alert.Notification"]} -> false`, origin: "Setting" });
-				ipcRenderer.send("config:value", "trem-eq.Notification", true);
-			} else {
-				document.getElementById("trem-eq.Notification").checked = false;
-			}
-		}, "確認", "取消", () => {
-			document.getElementById("trem-eq.Notification").checked = false;
-		});
-}
-
 function stream_mode(value) {
 	if (value) {
 		document.getElementById("report.changeView").checked = false;
@@ -619,12 +578,6 @@ function CheckSave(id) {
 	} else if (id == "Real-time.alert" && !value) {
 		clearTimeout(Real_time_alert);
 		ipcRenderer.send("config:value", id, value);
-	} else if (id == "trem-eq.Notification" && value) {
-		runconstk = 0;
-		trem_eq_Notification_run();
-	} else if (id == "trem-eq.Notification" && !value) {
-		clearTimeout(trem_eq_Notification);
-		ipcRenderer.send("config:value", id, value);
 	} else {
 		ipcRenderer.send("config:value", id, value);
 	}
@@ -643,18 +596,6 @@ function CheckSave(id) {
 	if (id == "report.changeView" && value) {
 		document.getElementById("report.onlycwachangeView").checked = false;
 		ipcRenderer.send("config:value", "report.onlycwachangeView", false);
-	}
-
-	if (id == "trem-eq.alert.Notification") {
-		const element = document.getElementById("trem-eq.Notification");
-		element.checked = false;
-
-		if (is_setting_disabled) element.disabled = true;
-		else element.disabled = false;
-
-		ipcRenderer.send("config:value", "trem-eq.Notification", false);
-		log(`Value Changed trem-eq.Notification: ${setting["trem-eq.Notification"]} -> false`, 1, "Setting", "CheckSave");
-		dump({ level: 0, message: `Value Changed trem-eq.Notification: ${setting["trem-eq.Notification"]} -> false`, origin: "Setting" });
 	}
 
 	if (

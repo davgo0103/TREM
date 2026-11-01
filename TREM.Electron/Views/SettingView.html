@@ -2118,12 +2118,12 @@
                                                 <span class="option-label-id">webhook.maxAge</span>
                                             </span>
                                             <span class="option-label-description">
-                                                <span lang="en">EEW and TREM-EQ alerts whose earthquake happened longer ago than this are not sent, so replays do not trigger the Webhook. Later reports of an earthquake that was already sent are still sent. 0 = no limit.</span>
-                                                <span lang="ja">地震発生からこの秒数を超えた緊急地震速報と TREM-EQ 警報は送信しません（リプレイによる誤送信を防止）。0 で制限なし。</span>
+                                                <span lang="en">EEW and shake detection alerts whose earthquake happened longer ago than this are not sent, so replays do not trigger the Webhook. Later reports of an earthquake that was already sent are still sent. 0 = no limit.</span>
+                                                <span lang="ja">地震発生からこの秒数を超えた緊急地震速報と揺れ検知は送信しません（リプレイによる誤送信を防止）。0 で制限なし。</span>
                                                 <span lang="kr">지진 발생 후 이 시간(초)이 지난 경보는 발송하지 않습니다(리플레이 오발송 방지). 0 = 제한 없음.</span>
                                                 <span lang="ru">Тревоги о землетрясениях старше указанного времени не отправляются (защита от отправки при повторе). 0 — без ограничения.</span>
-                                                <span lang="zh-CN">地震发生超过此秒数的地震速报与 TREM-EQ 警报不发送，避免重播时误发。已发出的地震，后续报数照常更新。0 为不限制。</span>
-                                                <span lang="zh-TW">地震發生超過此秒數的地震速報與 TREM-EQ 警報不發送，避免重播時誤發。已發出的地震，後續報數照常更新。0 為不限制。</span>
+                                                <span lang="zh-CN">地震发生超过此秒数的地震速报与震动检测不发送，避免重播时误发。已发出的地震，后续报数照常更新。0 为不限制。</span>
+                                                <span lang="zh-TW">地震發生超過此秒數的地震速報與震動檢測不發送，避免重播時誤發。已發出的地震，後續報數照常更新。0 為不限制。</span>
                                             </span>
                                         </div>
                                         <input class="input-field" id="webhook.maxAge" type="number" min="0" step="1" onchange="TextSave('webhook.maxAge')" placeholder="60" />
@@ -2578,50 +2578,21 @@
                                     <div class="option-container">
                                         <div class="option-label">
                                             <span class="option-label-title">
-                                                <span lang="en">?</span>
-                                                <span lang="ja">?</span>
-                                                <span lang="kr">?</span>
-                                                <span lang="ru">?</span>
-                                                <span lang="zh-CN">?</span>
-                                                <span lang="zh-TW">地震檢知通知</span>
-                                                <span class="option-label-id">trem-eq.Notification</span>
-                                            </span>
-                                            <span class="option-label-description">
-                                                <span lang="en">?</span>
-                                                <span lang="ja">?</span>
-                                                <span lang="kr">?</span>
-                                                <span lang="ru">?</span>
-                                                <span lang="zh-CN">?</span>
-                                                <span lang="zh-TW">發地震檢知 Webhook通知。(需要特殊通道才會生效)</span>
-                                            </span>
-                                        </div>
-                                        <label class="md3 switch">
-                                            <input type="checkbox" id="trem-eq.Notification" onclick="CheckSave('trem-eq.Notification')">
-                                            <span class="slider">
-                                                <span class="material-symbols-rounded icon">done</span>
-                                            </span>
-                                        </label>
-                                    </div>
-                                </div>
-                                <div class="control-container">
-                                    <div class="option-container">
-                                        <div class="option-label">
-                                            <span class="option-label-title">
-                                                <span lang="en">?</span>
-                                                <span lang="ja">?</span>
-                                                <span lang="kr">?</span>
-                                                <span lang="ru">?</span>
-                                                <span lang="zh-CN">?</span>
-                                                <span lang="zh-TW">地震檢知(警報)通知</span>
+                                                <span lang="en">Shake Detection Notification</span>
+                                                <span lang="ja">揺れ検知通知</span>
+                                                <span lang="kr">흔들림 감지 알림</span>
+                                                <span lang="ru">Уведомление об обнаружении толчков</span>
+                                                <span lang="zh-CN">震动检测通知</span>
+                                                <span lang="zh-TW">震動檢測通知</span>
                                                 <span class="option-label-id">trem-eq.alert.Notification</span>
                                             </span>
                                             <span class="option-label-description">
-                                                <span lang="en">?</span>
-                                                <span lang="ja">?</span>
-                                                <span lang="kr">?</span>
-                                                <span lang="ru">?</span>
-                                                <span lang="zh-CN">?</span>
-                                                <span lang="zh-TW">發地震檢知(警報) Webhook通知。</span>
+                                                <span lang="en">Send a Webhook when TREM stations detect shaking. Later intensity increases edit the same message, and an EEW arriving shortly after takes it over.</span>
+                                                <span lang="ja">TREM の観測点が揺れを検知したときに Webhook を送信します。</span>
+                                                <span lang="kr">TREM 관측소가 흔들림을 감지하면 Webhook을 발송합니다.</span>
+                                                <span lang="ru">Отправлять Webhook, когда станции TREM обнаруживают толчки.</span>
+                                                <span lang="zh-CN">TREM 测站检测到震动时发送 Webhook 通知。震度升级时编辑同一则信息，之后的地震速报会接手编辑这则信息。</span>
+                                                <span lang="zh-TW">TREM 測站檢測到震動時發送 Webhook 通知。震度升級時編輯同一則訊息，之後的地震速報會接手編輯這則訊息。</span>
                                             </span>
                                         </div>
                                         <label class="md3 switch">
@@ -2635,21 +2606,21 @@
                                 <div class="option-container">
                                     <div class="option-label">
                                         <span class="option-label-title">
-                                            <span lang="en">?</span>
-                                            <span lang="ja">?</span>
-                                            <span lang="kr">?</span>
-                                            <span lang="ru">?</span>
-                                            <span lang="zh-CN">?</span>
-                                            <span lang="zh-TW">地震檢知(警報)震度</span>
+                                            <span lang="en">Shake Detection Threshold</span>
+                                            <span lang="ja">揺れ検知通知の震度</span>
+                                            <span lang="kr">흔들림 감지 알림 진도</span>
+                                            <span lang="ru">Порог обнаружения толчков</span>
+                                            <span lang="zh-CN">震动检测通知门槛</span>
+                                            <span lang="zh-TW">震動檢測通知門檻</span>
                                             <span class="option-label-id">trem-eq.alert.Notification.Intensity</span>
                                         </span>
                                         <span class="option-label-description">
-                                            <span lang="en">?</span>
-                                            <span lang="ja">?</span>
-                                            <span lang="kr">?</span>
-                                            <span lang="ru">?</span>
-                                            <span lang="zh-CN">?</span>
-                                            <span lang="zh-TW">地震檢知(警報)超過「地震檢知(警報)震度」時觸發 。</span>
+                                            <span lang="en">Notify only when the detected maximum intensity reaches this level.</span>
+                                            <span lang="ja">検知した最大震度がこの値以上のときに通知します。</span>
+                                            <span lang="kr">감지된 최대 진도가 이 값 이상일 때 알립니다.</span>
+                                            <span lang="ru">Уведомлять, только когда максимальная интенсивность достигает этого уровня.</span>
+                                            <span lang="zh-CN">检测到的最大震度达到此震度时才通知。</span>
+                                            <span lang="zh-TW">檢測到的最大震度達到此震度時才通知。</span>
                                         </span>
                                     </div>
                                     <div class="control">

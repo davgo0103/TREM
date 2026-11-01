@@ -4523,8 +4523,6 @@ function FCMdata(json, Unit) {
 		if (speecd_use) TREM.speech.speak({ text: `海嘯資訊${Now0} ${json.location} 發生 ${json.scale.replace(".", "點")} 地震` });
 	} else if (json.type == "tsunami") {
 		TREM.Earthquake.emit("tsunami", json);
-	} else if (json.type == "trem-eq") {
-		TREM.Earthquake.emit("trem-eq", json);
 	// } else if (json.type == "palert") {
 	// 	TREM.MapIntensity.palert(json);
 	// } else if (json.type == "palert-app") {
@@ -5618,113 +5616,6 @@ TREM.Earthquake.on("eewEnd", (id, type) => {
 	clear(id, type);
 });
 // #endregion
-
-TREM.Earthquake.on("trem-eq", (data) => {
-	console.debug(data);
-	const now = new Date(data.time);
-	const Now2 = now.getFullYear()
-	+ "/" + (now.getMonth() + 1 < 10 ? "0" : "") + (now.getMonth() + 1)
-	+ "/" + (now.getDate() < 10 ? "0" : "") + now.getDate()
-	+ " " + (now.getHours() < 10 ? "0" : "") + now.getHours()
-	+ ":" + (now.getMinutes() < 10 ? "0" : "") + now.getMinutes()
-	+ ":" + (now.getSeconds() < 10 ? "0" : "") + now.getSeconds();
-	const _now = new Date(data.timestamp);
-	const _Now = _now.getFullYear()
-	+ "/" + (_now.getMonth() + 1 < 10 ? "0" : "") + (_now.getMonth() + 1)
-	+ "/" + (_now.getDate() < 10 ? "0" : "") + _now.getDate()
-	+ " " + (_now.getHours() < 10 ? "0" : "") + _now.getHours()
-	+ ":" + (_now.getMinutes() < 10 ? "0" : "") + _now.getMinutes()
-	+ ":" + (_now.getSeconds() < 10 ? "0" : "") + _now.getSeconds();
-
-	const webhookFresh = webhookInTime(`trem-eq:${data.id ?? data.time}`, data.time);
-
-	if (setting["webhook.url"] != "" && webhookFresh && setting["trem-eq.alert.Notification"] && data.alert) {
-		let state_station;
-		let Max_Intensity = 0;
-		let description = "警報\n";
-		description += `\n開始時間 > ${Now2}\n\n`;
-
-		for (let index = 0, keys = Object.keys(data.list), n = keys.length; index < n; index++) {
-			if (data.list[keys[index]] > Max_Intensity) Max_Intensity = data.list[keys[index]];
-			description += `${station[keys[index]]?.Loc ?? keys[index]} 最大震度 > ${IntensityI(data.list[keys[index]])}\n`;
-			state_station = index + 1;
-		}
-
-		description += `\n第 ${data.number} 報 | ${data.data_count} 筆數據 ${data.final ? "(最終報)" : ""}\n`;
-		description += `共 ${state_station} 站觸發 | 全部 ${data.total_station} 站\n`;
-		description += `現在時間 > ${_Now}\n`;
-		// console.log(description);
-		const msg = {
-			username   : "TREMV | 臺灣即時地震監測變體",
-			avatar_url : "https://avatars.githubusercontent.com/u/91672109?s=128",
-			content    : setting["tts.Notification"] ? ((data.final ? "地震檢知(最終報)" : "地震檢知") + description) : "地震檢知",
-			tts        : setting["tts.Notification"],
-			embeds     : [
-				{
-					author: {
-						name     : data.final ? "地震檢知(最終報)" : "地震檢知",
-						icon_url : undefined,
-					},
-					description : description,
-					color       : 15158332,
-				},
-			],
-		};
-
-		if (setting["trem-eq.alert.Notification.Intensity"] <= Max_Intensity) {
-			log("Posting Notification trem-eq alert Webhook", 1, "Webhook", "trem-eq");
-			dump({ level: 0, message: "Posting Notification trem-eq alert Webhook", origin: "Webhook" });
-			sendWebhook(setting["webhook.url"], msg).catch((error) => {
-				log(error, 3, "Webhook", "trem-eq");
-				dump({ level: 2, message: error, origin: "Webhook" });
-			});
-		}
-	} else if (setting["webhook.url"] != "" && webhookFresh && setting["trem-eq.Notification"] && setting["dev.mode"]) {
-		let state_station;
-		let description = "";
-
-		if (data.cancel)
-			description += "取消\n";
-		else if (data.alert)
-			description += "警報\n";
-		else
-			description += "預報\n";
-
-		description += `\n開始時間 > ${Now2}\n\n`;
-
-		for (let index = 0, keys = Object.keys(data.list), n = keys.length; index < n; index++) {
-			description += `${station[keys[index]]?.Loc ?? keys[index]} 最大震度 > ${IntensityI(data.list[keys[index]])}\n`;
-			state_station = index + 1;
-		}
-
-		description += `\n第 ${data.number} 報 | ${data.data_count} 筆數據 ${data.final ? "(最終報)" : ""}\n`;
-		description += `共 ${state_station} 站觸發 | 全部 ${data.total_station} 站\n`;
-		description += `現在時間 > ${_Now}\n`;
-		// console.log(description);
-		const msg = {
-			username   : "TREMV | 臺灣即時地震監測變體",
-			avatar_url : "https://avatars.githubusercontent.com/u/91672109?s=128",
-			content    : setting["tts.Notification"] ? ((data.final ? "地震檢知(最終報)" : "地震檢知") + description) : "地震檢知",
-			tts        : setting["tts.Notification"],
-			embeds     : [
-				{
-					author: {
-						name     : data.final ? "地震檢知(最終報)" : "地震檢知",
-						icon_url : undefined,
-					},
-					description : description,
-					color       : (data.cancel) ? 9807270 : (data.alert) ? 15158332 : 15105570,
-				},
-			],
-		};
-		log("Posting dev mode Notification trem-eq alert Webhook", 1, "Webhook", "trem-eq");
-		dump({ level: 0, message: "Posting dev mode Notification trem-eq Webhook", origin: "Webhook" });
-		sendWebhook(setting["webhook.url"], msg).catch((error) => {
-			log(error, 3, "Webhook", "trem-eq");
-			dump({ level: 2, message: error, origin: "Webhook" });
-		});
-	}
-});
 
 ipcRenderer.on("Olddatabase_tsunami", (event, json) => {
 	TREM.Earthquake.emit("tsunami", json);
