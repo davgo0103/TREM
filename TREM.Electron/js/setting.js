@@ -1478,7 +1478,7 @@ const webhook = async () => {
 		embeds     : [
 			{
 				title       : "Webhook 測試",
-				description : "這是一則由 TREMV 發送的測試訊息\nDiscord 會附上目前主畫面的截圖，地震速報時也會附上",
+				description : "這是一則由 TREMV 發送的測試訊息\nDiscord Webhook 測試成功！",
 				color       : 0x3498db,
 				footer      : { text: "ExpTech Studio" },
 				timestamp   : new Date().toISOString(),
