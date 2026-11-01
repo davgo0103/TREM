@@ -28,6 +28,9 @@ jobs:
       run: sudo apt-get update && sudo apt-get install -y rpm
     - name: Restore dependencies
       run: npm ci
+    # node_modules 中有修改過的套件一起 commit，npm ci 會換回原版，要再還原
+    - name: Restore patched modules
+      run: git checkout -- node_modules
     - name: Build
       run: npx electron-builder --linux -p never
     - name: Upload to release
@@ -49,6 +52,9 @@ jobs:
         node-version: 22
     - name: Restore dependencies
       run: npm ci
+    # node_modules 中有修改過的套件一起 commit，npm ci 會換回原版，要再還原
+    - name: Restore patched modules
+      run: git checkout -- node_modules
     # 沒有 Apple 開發者憑證，打包成 dmg 前先做 ad-hoc 簽章（Apple 晶片至少要有 ad-hoc 簽章才能執行）
     - name: Ad-hoc sign hook
       run: |
