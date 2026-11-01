@@ -6,7 +6,6 @@ require("leaflet-geojson-vt");
 require("expose-gc");
 const { BrowserWindow, shell } = require("@electron/remote");
 const { setTimeout, setInterval, clearTimeout, clearInterval } = require("node:timers");
-const bytenode = require("bytenode");
 const Route = require("../js/route.js");
 const { fetchStationList, fetchLegacyStationList } = require("../js/station_list.js");
 const { SSEStream } = require("../js/sse.js");
@@ -40,7 +39,6 @@ const speecd_use = setting["audio.tts"] ?? false;
 // #region 變數
 const MapData = {};
 const Timers = {};
-let Stamp = 0;
 let rts_remove_eew = false;
 let UserLocationLat = 25.0421407;
 let UserLocationLon = 121.5198716;
@@ -122,7 +120,63 @@ let stationnow = 0;
 let stationnowall = 0;
 let RMTpgaTime = 0;
 let type_Unit = "";
-let p2p_mode_status = false;
+// 原本由 winserver.jar（已移除）宣告、仍被既有程式讀取的全域變數。
+// 舊 WebSocket 與 VIP 金鑰驗證已不存在，即時資料一律走 SSE。
+const rts_key_verify = false;
+const api_key_verify = false;
+const eew_key_verify = false;
+const rts_ws2_timestamp = 0;
+const rts_response_new = {};
+let rts_ws_timestamp = 0;
+let rts_response = {};
+
+/**
+ * P 波、S 波走時（秒），原本由 winserver.jar 提供，取自 TREM 公開原始碼的同一演算法。
+ * @param {number} depth 震源深度（km）
+ * @param {number} distance 震央距（km）
+ * @returns {{ Ptime: number, Stime: number }}
+ */
+function _speed(depth, distance) {
+	const Za = 1 * depth;
+	let G0, G;
+	const Xb = distance;
+
+	if (depth <= 40) {
+		G0 = 5.10298;
+		G = 0.06659;
+	} else {
+		G0 = 7.804799;
+		G = 0.004573;
+	}
+
+	const Zc = -1 * (G0 / G);
+	const Xc = (Math.pow(Xb, 2) - 2 * (G0 / G) * Za - Math.pow(Za, 2)) / (2 * Xb);
+	let Theta_A = Math.atan((Za - Zc) / Xc);
+
+	if (Theta_A < 0) Theta_A = Theta_A + Math.PI;
+
+	Theta_A = Math.PI - Theta_A;
+	const Theta_B = Math.atan(-1 * Zc / (Xb - Xc));
+	let Ptime = (1 / G) * Math.log(Math.tan((Theta_A / 2)) / Math.tan((Theta_B / 2)));
+	const G0_ = G0 / 1.732;
+	const G_ = G / 1.732;
+	const Zc_ = -1 * (G0_ / G_);
+	const Xc_ = (Math.pow(Xb, 2) - 2 * (G0_ / G_) * Za - Math.pow(Za, 2)) / (2 * Xb);
+	let Theta_A_ = Math.atan((Za - Zc_) / Xc_);
+
+	if (Theta_A_ < 0) Theta_A_ = Theta_A_ + Math.PI;
+
+	Theta_A_ = Math.PI - Theta_A_;
+	const Theta_B_ = Math.atan(-1 * Zc_ / (Xb - Xc_));
+	let Stime = (1 / G_) * Math.log(Math.tan(Theta_A_ / 2) / Math.tan(Theta_B_ / 2));
+
+	if (distance / Ptime > 7) Ptime = distance / 7;
+
+	if (distance / Stime > 4) Stime = distance / 4;
+
+	return { Ptime, Stime };
+}
+
 let HTTP = false;
 let NewReportTag = "";
 // #endregion
@@ -806,20 +860,6 @@ async function init() {
 
 	// Connect to server
 	try {
-		if (process.platform === "win32") {
-			bytenode.runBytecodeFile(path.resolve(__dirname, "../js/winserver.jar"));
-		} else if (process.platform === "darwin") {
-			if (process.arch === "x64")
-				bytenode.runBytecodeFile(path.resolve(__dirname, "../js/macos_x64_server.jar"));
-			else if (process.arch === "arm64")
-				bytenode.runBytecodeFile(path.resolve(__dirname, "../js/macos_arm64_server.jar"));
-		} else if (process.platform === "linux") {
-			if (process.arch === "x64")
-				bytenode.runBytecodeFile(path.resolve(__dirname, "../js/linux_x64_server.jar"));
-			else if (process.arch === "arm64")
-				bytenode.runBytecodeFile(path.resolve(__dirname, "../js/linux_arm64_server.jar"));
-		}
-
 		$("#loading").text(TREM.Localization.getString("Application_Connecting"));
 		log("Trying to connect to the server...", 1, "ResourceLoader", "init");
 		dump({ level: 0, message: "Trying to connect to the server...", origin: "ResourceLoader" });
@@ -895,28 +935,12 @@ async function init() {
 				let GetDataState = "";
 				let Warn = "";
 
-				if (!HTTP) Warn += "0";
+				// 0：地震速報串流中斷；1：即時資料串流中斷
+				if (!eew_sse?.connected) Warn += "0";
 
-				if (!WS) Warn += `1(${ws_num})`;
-
-				// if (!WS_backup) Warn += `2(${ws_num_bk})`;
-
-				if (!FCM) Warn += "3";
-
-				if (setting["p2p.mode"])
-					try {
-						if (!info.server.length) Warn += "7";
-					} catch (e) {
-						Warn += "6";
-					}
-				else
-					Warn += "5";
-
-				if (!WS_yayacat) Warn += "9";
+				if (!trem_sse?.connected) Warn += "1";
 
 				Warn = ((Warn == "") ? "" : ` | 📛 ${Warn}`);
-
-				if (Warn == "") Warn = ` | ⬆: ${info.in.length + info6.in.length} ⬇: ${info.out.length + info6.out.length}`;
 
 				if (type_Unit == "http") GetDataState += "🟩 Http";
 
@@ -956,8 +980,8 @@ async function init() {
 				const rss = `${(((memoryData.rss / 1024) / 1024) / 1024).toFixed(2)} GB`;
 				// const warn = (Warn) ? "⚠️" : "";
 				// const unlock = (Unlock) ? "⚡" : "";
-				$("#log").text(`${stationnow}/${stationnowall} | ${stationPercentage}% | LB(${ws_num},${route.random_global_url}) | ${rss}`);
-				$("#log1").text(`${stationnow}/${stationnowall} | ${stationPercentage}% | LB(${ws_num},${route.random_global_url}) | ${rss}`);
+				$("#log").text(`${stationnow}/${stationnowall} | ${stationPercentage}% | ${rss}`);
+				$("#log1").text(`${stationnow}/${stationnowall} | ${stationPercentage}% | ${rss}`);
 				ipcRenderer.send("TREMIntensitylog2", { time: now_format(NOW()), log: `${stationnow}/${stationnowall} | ${stationPercentage}% | ${rss}`, ver: `${app.getVersion()} ${Ping} ${GetDataState} ${Warn}` });
 				$("#app-version").text(`${app.getVersion()} ${Ping} ${GetDataState} ${Warn}`);
 				$("#app-version1").text(`${app.getVersion()} ${Ping} ${GetDataState} ${Warn}`);
@@ -1301,6 +1325,7 @@ async function init() {
 	});
 
 	progressbar.value = 1;
+	startServices();
 
 	setUserLocationMarker(setting["location.town"]);
 	$("#loading").text(TREM.Localization.getString("Application_Welcome"));
@@ -1534,70 +1559,11 @@ function PGAMain() {
 					const ReplayTime = (replay == 0) ? 0 : replay + (NOW().getTime() - replayT);
 
 					if (ReplayTime == 0) {
-						if (rts_ws_timestamp && setting["Real-time.websocket"] === "exptech") {
-							const t0 = Math.abs((rts_response.Time ?? rts_response.time) - NOW().getTime());
-
-							if (!rts_key_verify) {
-								Ping = `🔒 ${rtsAge()}s`;
-								Response = rts_response;
-							} else if (rts_key_verify) {
-								if (t0 < 1500) Ping = `⚡ ${(t0 / 1000).toFixed(1)}s`;
-								else if (t0 < 7500) Ping = `📶 ${(t0 / 1000).toFixed(1)}s`;
-								else Ping = `⚠️ ${(t0 / 1000).toFixed(1)}s`;
-
-								// Ping = NOW().getTime() - rts_ws_timestamp + "ms " + "⚡";
-
-								Response = rts_response;
-
-								if ((NOW().getTime() - rts_ws_timestamp) > 10_000 && !setting["sleep.mode"] && !rts_ws2_timestamp) {
-									Ping = `❌ ${((NOW().getTime() - rts_ws_timestamp) / 1000).toFixed(1)}s`;
-									log("PGA timer time out 10s", 2, "PGATimer", "PGAMain");
-									dump({ level: 1, message: "PGA timer time out 10s", origin: "PGATimer" });
-									setTimeout(() => {
-										reconnect();
-										PGAMainbkup();
-									}, 3000);
-
-									if (Timers.rts_clock) clearInterval(Timers.rts_clock);
-								} else if ((NOW().getTime() - Response.Time) > 1_000 && setting["sleep.mode"]) {
-									Ping = "💤";
-								} else if (setting["sleep.mode"]) {
-									Ping = "💤";
-								}
-							}
-							// ipcRenderer.send("restart");
-						} else if (rts_ws2_timestamp && setting["Real-time.websocket"] === "yayacat") {
-							const t0 = Math.abs((rts_response_new.Time ?? rts_response_new.time) - NOW().getTime());
-
-							if (!rts_key_verify) {
-								Ping = `🔒 ${rtsAge()}s`;
-								Response = rts_response;
-							} else if (rts_key_verify) {
-								if (t0 < 1500) Ping = `⚡ ${(t0 / 1000).toFixed(1)}s`;
-								else if (t0 < 7500) Ping = `📶 ${(t0 / 1000).toFixed(1)}s`;
-								else Ping = `⚠️ ${(t0 / 1000).toFixed(1)}s`;
-
-								// Ping = NOW().getTime() - rts_ws_timestamp + "ms " + "⚡";
-
-								Response = rts_response_new;
-
-								if ((NOW().getTime() - rts_ws2_timestamp) > 10_000 && !setting["sleep.mode"] && !rts_ws_timestamp) {
-									Ping = `❌ ${((NOW().getTime() - rts_ws2_timestamp) / 1000).toFixed(1)}s`;
-									log("PGA 2 timer time out 10s", 2, "PGATimer", "PGAMain");
-									dump({ level: 1, message: "PGA 2 timer time out 10s", origin: "PGATimer" });
-									setTimeout(() => {
-										reconnect2();
-										PGAMainbkup();
-									}, 3000);
-
-									if (Timers.rts_clock) clearInterval(Timers.rts_clock);
-								} else if ((NOW().getTime() - Response.Time) > 1_000 && setting["sleep.mode"]) {
-									Ping = "💤";
-								} else if (setting["sleep.mode"]) {
-									Ping = "💤";
-								}
-							}
-							// ipcRenderer.send("restart");
+						if (rts_ws_timestamp) {
+							// 即時資料只剩 SSE：依資料新鮮度顯示，背景模式（只收觸發資料）顯示 🌙
+							const age = (Date.now() - rts_ws_timestamp) / 1000;
+							Ping = rts_background ? "🌙" : `${age < 1.5 ? "⚡" : age < 7.5 ? "📶" : "⚠️"} ${rtsAge()}s`;
+							Response = rts_response;
 						} else {
 							for (const removedKey of Object.keys(Station)) {
 								Station[removedKey].remove();
@@ -1719,70 +1685,11 @@ function PGAMainbkup() {
 					const ReplayTime = (replay == 0) ? 0 : replay + (NOW().getTime() - replayT);
 
 					if (ReplayTime == 0)
-						if (rts_ws_timestamp && setting["Real-time.websocket"] === "exptech") {
-							const t1 = Math.abs((rts_response.Time ?? rts_response.time) - NOW().getTime());
-
-							if (!rts_key_verify) {
-								Ping = `🔒 ${rtsAge()}s`;
-								Response = rts_response;
-							} else if (rts_key_verify) {
-								if (t1 < 1500) Ping = `⚡ ${(t1 / 1000).toFixed(1)}s`;
-								else if (t1 < 7500) Ping = `📶 ${(t1 / 1000).toFixed(1)}s`;
-								else Ping = `⚠️ ${(t1 / 1000).toFixed(1)}s`;
-
-								// Ping = NOW().getTime() - rts_ws_timestamp + "ms " + "⚡";
-
-								Response = rts_response;
-
-								if ((NOW().getTime() - rts_ws_timestamp) > 10_000 && !setting["sleep.mode"] && !rts_ws2_timestamp) {
-									Ping = `❌ ${((NOW().getTime() - rts_ws_timestamp) / 1000).toFixed(1)}s`;
-									log("PGA timer backup time out 10s", 2, "PGATimer", "PGAMainbkup");
-									dump({ level: 1, message: "PGA timer backup time out 10s", origin: "PGATimer" });
-									setTimeout(() => {
-										reconnect();
-										PGAMain();
-									}, 3000);
-
-									if (Timers.rts_clock) clearInterval(Timers.rts_clock);
-								} else if ((NOW().getTime() - Response.Time) > 1_000 && setting["sleep.mode"]) {
-									Ping = "💤";
-								} else if (setting["sleep.mode"]) {
-									Ping = "💤";
-								}
-							}
-							// ipcRenderer.send("restart");
-						} else if (rts_ws2_timestamp && setting["Real-time.websocket"] === "yayacat") {
-							const t1 = Math.abs((rts_response_new.Time ?? rts_response_new.time) - NOW().getTime());
-
-							if (!rts_key_verify) {
-								Ping = `🔒 ${rtsAge()}s`;
-								Response = rts_response;
-							} else if (rts_key_verify) {
-								if (t1 < 1500) Ping = `⚡ ${(t1 / 1000).toFixed(1)}s`;
-								else if (t1 < 7500) Ping = `📶 ${(t1 / 1000).toFixed(1)}s`;
-								else Ping = `⚠️ ${(t1 / 1000).toFixed(1)}s`;
-
-								// Ping = NOW().getTime() - rts_ws_timestamp + "ms " + "⚡";
-
-								Response = rts_response_new;
-
-								if ((NOW().getTime() - rts_ws2_timestamp) > 10_000 && !setting["sleep.mode"] && !rts_ws_timestamp) {
-									Ping = `❌ ${((NOW().getTime() - rts_ws2_timestamp) / 1000).toFixed(1)}s`;
-									log("PGA timer backup time out 10s", 2, "PGATimer", "PGAMainbkup");
-									dump({ level: 1, message: "PGA timer backup time out 10s", origin: "PGATimer" });
-									setTimeout(() => {
-										reconnect2();
-										PGAMain();
-									}, 3000);
-
-									if (Timers.rts_clock) clearInterval(Timers.rts_clock);
-								} else if ((NOW().getTime() - Response.Time) > 1_000 && setting["sleep.mode"]) {
-									Ping = "💤";
-								} else if (setting["sleep.mode"]) {
-									Ping = "💤";
-								}
-							}
-							// ipcRenderer.send("restart");
+						if (rts_ws_timestamp) {
+							// 即時資料只剩 SSE：依資料新鮮度顯示，背景模式（只收觸發資料）顯示 🌙
+							const age = (Date.now() - rts_ws_timestamp) / 1000;
+							Ping = rts_background ? "🌙" : `${age < 1.5 ? "⚡" : age < 7.5 ? "📶" : "⚠️"} ${rtsAge()}s`;
+							Response = rts_response;
 						} else {
 							for (const removedKey of Object.keys(Station)) {
 								Station[removedKey].remove();
@@ -3630,69 +3537,28 @@ TREM.color = function color(Intensity) {
 
 
 // #region IPC
-ipcRenderer.on("start", () => {
+// 啟動即時資料、速報與校時（原本要等 winserver.jar 發出 start 才會執行）
+function startServices() {
 	try {
-		if (!(rts_key_verify ? storage.getItem("disclaimer_off") : false) && !rts_key_verify)
-			getp2pTOS();
-		else
-			getp2pTOSrun();
+		setTimeout(() => getTOS(), 1000);
 
 		if (localStorage.rts_alert_false == undefined) {
 			localStorage.rts_alert_false = true;
 			ipcRenderer.send("config:value", "Real-time.alert", false);
 		}
 
-		setInterval(() => {
-			if (DATAstamp != 0 && Stamp != DATAstamp) {
-				Stamp = DATAstamp;
-				FCMdata(DATA, ServerType);
-			}
-		}, 0);
-
 		freertsget();
 		fetch_eew();
 		fetch_ntp();
 
-		log(`Initializing ServerCore >> ${ServerVer}`, 1, "Initialization", "start");
-		dump({ level: 0, message: `Initializing ServerCore >> ${ServerVer}`, origin: "Initialization" });
+		log("Services started", 1, "Initialization", "start");
+		dump({ level: 0, message: "Services started", origin: "Initialization" });
 	} catch (error) {
 		showDialog("error", "發生錯誤", `初始化過程中發生錯誤，您可以繼續使用此應用程式，但無法保證所有功能皆能繼續正常運作。\n\n如果這是您第一次看到這個訊息，請嘗試重新啟動應用程式。\n如果這個錯誤持續出現，請到 TREM Discord 伺服器回報問題。\n\n錯誤訊息：${error}`);
 		$("#load").delay(1000).fadeOut(1000);
 		log(error, 3, "Initialization", "start");
 		dump({ level: 2, message: error, origin: "Initialization" });
 	}
-});
-
-function getp2pTOSrun() {
-	if (setting["p2p.mode"] && !p2p_mode_status) {
-		p2p_mode_status = true;
-		serverinit();
-	}
-
-	setTimeout(() => {
-		getTOS();
-	}, 1000);
-}
-
-function getp2pTOS() {
-	showDialog(
-		"warn",
-		"免責聲明",
-		`• TREMV VIP功能中的資訊屬於特定使用者使用，與最終非特定使用者中的資訊可能存有若干差異，請所有使用者理解並謹慎使用。\n
-		• 強震即時警報是利用少數幾個地震測站快速演算之結果，與最終地震報告可能存有若干差異，請所有使用者理解並謹慎使用。\n
-		• 本軟體使用P2P的連線技術傳遞資料，您的電腦將會把收到的地震資訊轉傳給其他人的電腦，如此才能降低伺服器負荷與維持費用，也才能免費地提供服務給大家使用。若您開始使用本軟體則代表您已同意使用P2P連線技術將收到的資料轉傳給其他電腦。\n
-		• 任何資訊均以 中央氣象署(CWA) 發布之內容為準\n
-		• Powered by ExpTech | 2024/05/24`,
-		0,
-		"warning",
-		() => {
-			getp2pTOSrun();
-		},
-		"我已詳細閱讀 並同意上述免責聲明",
-		"",
-		() => void 0,
-		0,
-		1);
 }
 
 function getTOS() {
@@ -3706,7 +3572,6 @@ function getTOS() {
 			• 禁止轉售 TREMV 提供之資訊\n
 			• 禁止違反法律法規或違反公共秩序和道德的行為\n
 			• 除以上條款外 任何開發團隊合理認為不適當的行為均不被允許\n
-			• TREMV 使用 P2P 技術傳遞資訊\n
 			• 任何資訊均以 中央氣象署(CWA) 發布之內容為準\n
 			• Powered by ExpTech | 2023/11/03`,
 			0,
@@ -4032,7 +3897,7 @@ function fetch_eew() {
 
 					e.type = "eew";
 					e.timestamp = realNow();
-					FCMdata(e, ServerType = "http");
+					FCMdata(e, "http");
 				} catch (err) {
 					log(`EEW ${e?.id} failed: ${err}`, 3, "server", "eew-sse");
 				}
@@ -4175,10 +4040,6 @@ ipcRenderer.on("sleep", (event, mode) => {
 		sleep(mode);
 	else
 		sleep(mode);
-});
-
-ipcRenderer.on("apikey", (event, data) => {
-	apikey(false, data);
 });
 
 ipcRenderer.on("report-Notification", (event, report) => {
@@ -6367,27 +6228,19 @@ function globalgc() {
 	global.gc();
 }
 
-function WebSocket_close() {
-	if (ws.readyState === WebSocket.OPEN)
-		ws.close();
-
-	if (ws_yayacat.readyState === WebSocket.OPEN)
-		ws_yayacat.close();
-}
-
 ipcRenderer.on("app-before-quit", () => {
-	// 執行網頁內容關閉前的任務...
-	WebSocket_close();
-	log("WebSocket_close", 1, "TREM", "quit");
+	trem_sse?.stop();
+	eew_sse?.stop();
+	log("Streams closed", 1, "TREM", "quit");
 
 	// 通知主程序已準備好退出
 	ipcRenderer.send("app-quit-response");
 });
 
 ipcRenderer.on("app-before-reload", () => {
-	// 執行網頁內容關閉前的任務...
-	WebSocket_close();
-	log("WebSocket_close", 1, "TREM", "reload");
+	trem_sse?.stop();
+	eew_sse?.stop();
+	log("Streams closed", 1, "TREM", "reload");
 
 	// 通知主程序已準備好退出
 	ipcRenderer.send("app-quit-reload");

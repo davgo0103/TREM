@@ -5,7 +5,6 @@ const fs = require("fs");
 const os = require("os");
 const logger = require("electron-log");
 const path = require("path");
-const pushReceiver = require("electron-fcm-push-receiver");
 const remote = require("@electron/remote/main");
 const get_Version = TREM.getVersion();
 
@@ -123,7 +122,6 @@ function createWindow() {
 
 		if (!_hide) setTimeout(() => MainWindow.show(), 500);
 	});
-	pushReceiver.setup(MainWindow.webContents);
 
 	if (process.platform === "win32")
 		TREM.setAppUserModelId("TREMV | 臺灣即時地震監測變體");
@@ -571,28 +569,6 @@ ipcMain.on("openURL", (event, url) => {
 		shell.openExternal(url);
 });
 
-ipcMain.on("rtw", (event, data) => {
-	if (RTSWindow != null)
-		if (RTSWindow.isVisible())
-			RTSWindow.webContents.send("rtw", data);
-});
-
-ipcMain.on("apikey", (event, data) => {
-	MainWindow.webContents.send("apikey", data);
-});
-
-ipcMain.on("p2p", (event, data, server_ips) => {
-	if (SettingWindow != null)
-		if (SettingWindow.isVisible())
-			SettingWindow.webContents.send("p2p", data, server_ips);
-});
-
-ipcMain.on("p2p6", (event, data, server_ips) => {
-	if (SettingWindow != null)
-		if (SettingWindow.isVisible())
-			SettingWindow.webContents.send("p2p6", data, server_ips);
-});
-
 ipcMain.on("TREMIntensityhandle", (event, json) => {
 	if (IntensityWindow != null)
 		if (IntensityWindow.isVisible())
@@ -617,10 +593,6 @@ ipcMain.on("ReportTREM", () => {
 
 ipcMain.on("Olddatabase_report", (event, json) => {
 	MainWindow.webContents.send("Olddatabase_report", json);
-});
-
-ipcMain.on("start", () => {
-	emitAllWindow("start");
 });
 
 ipcMain.on("testoldEEW", () => {
@@ -669,10 +641,6 @@ ipcMain.on("test_eew", (event, json) => {
 
 ipcMain.on("Olddatabase_tsunami", (event, json) => {
 	emitAllWindow("Olddatabase_tsunami", json);
-});
-
-ipcMain.on("startPushReceiver", (event, arg) => {
-	pushReceiver.setup(MainWindow.webContents);
 });
 
 ipcMain.on("config:value", (event, key, value) => {
@@ -806,7 +774,6 @@ ipcMain.on("config:value", (event, key, value) => {
 		case "exptech.key": {
 			TREM.Configuration.data["exptech.key"] = value;
 			emitAllWindow("setting", TREM.Configuration._data);
-			emitAllWindow("apikey");
 			break;
 		}
 
