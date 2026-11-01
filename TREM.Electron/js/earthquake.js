@@ -190,6 +190,25 @@ TREM.Detector = {
 	})(),
 };
 
+// 先把新的色塊圖層畫好再移除舊的，換圖層時才不會出現一瞬間的空白（閃爍）
+function replaceLayer(oldLayer, newLayer, map) {
+	newLayer.addTo(map);
+
+	if (!oldLayer) return;
+
+	let removed = false;
+
+	const remove = () => {
+		if (removed) return;
+
+		removed = true;
+		oldLayer.remove();
+	};
+
+	newLayer.once("load", remove);
+	setTimeout(remove, 1000);
+}
+
 TREM.MapIntensity = {
 	isTriggered : false,
 	trem        : false,
@@ -444,12 +463,7 @@ TREM.MapArea2 = {
 			}
 		}
 
-		if (Object.keys(this.PLoc).length) this.PLoc = {};
-
-		if (areav2_geojson != null) {
-			areav2_geojson.remove();
-			areav2_geojson = null;
-		}
+		const PLoc = {};
 
 		for (const areav2 of Json.area) {
 			const intensity = this.cache.get(areav2) ?? 1;
@@ -459,36 +473,46 @@ TREM.MapArea2 = {
 
 				if (areav2 == key)
 					for (let id1 = 0; id1 < Object.keys(TREM.Resources.areav2[key]).length; id1++)
-						this.PLoc[TREM.Resources.areav2[key][id1]] = intensity;
+						PLoc[TREM.Resources.areav2[key][id1]] = intensity;
 			}
 		}
 
-		areav2_geojson = L.geoJson.vt(MapData.tw_town, {
-			minZoom   : 4,
-			maxZoom   : 15,
-			tolerance : 20,
-			buffer    : 256,
-			debug     : 0,
-			zIndex    : 5,
-			style     : (properties) => {
-				const name = properties.TOWNCODE;
+		// 即時資料每 0.5 秒一筆，範圍與震度沒變就不重畫
+		const signature = JSON.stringify(PLoc);
 
-				if (this.PLoc[name] == 0 || this.PLoc[name] == undefined)
+		if (areav2_geojson == null || signature != this.signature) {
+			this.signature = signature;
+			this.PLoc = PLoc;
+			const old = areav2_geojson;
+
+			areav2_geojson = L.geoJson.vt(MapData.tw_town, {
+				minZoom   : 4,
+				maxZoom   : 15,
+				tolerance : 20,
+				buffer    : 256,
+				debug     : 0,
+				zIndex    : 5,
+				style     : (properties) => {
+					const name = properties.TOWNCODE;
+
+					if (PLoc[name] == 0 || PLoc[name] == undefined)
+						return {
+							color       : "transparent",
+							weight      : 0,
+							opacity     : 0,
+							fillColor   : "transparent",
+							fillOpacity : 0,
+						};
 					return {
-						color       : "transparent",
-						weight      : 0,
-						opacity     : 0,
-						fillColor   : "transparent",
-						fillOpacity : 0,
+						color       : TREM.Colors.secondary,
+						weight      : 0.8,
+						fillColor   : TREM.color(PLoc[name]),
+						fillOpacity : 1,
 					};
-				return {
-					color       : TREM.Colors.secondary,
-					weight      : 0.8,
-					fillColor   : TREM.color(this.PLoc[name]),
-					fillOpacity : 1,
-				};
-			},
-		}).addTo(Maps.main);
+				},
+			});
+			replaceLayer(old, areav2_geojson, Maps.main);
+		}
 
 		this.isTriggered = true;
 
@@ -520,6 +544,7 @@ TREM.MapArea2 = {
 			areav2_geojson.remove();
 			areav2_geojson = null;
 			this.PLoc = {};
+			this.signature = null;
 		}
 
 		this.isTriggered = false;
@@ -5172,10 +5197,8 @@ TREM.Earthquake.on("eew", (data) => {
 		}, speed);
 	}
 
-	if (TREM.EEW.get(data.id)?.geojson) {
-		TREM.EEW.get(data.id).geojson.remove();
-		delete TREM.EEW.get(data.id).geojson;
-	}
+	// 舊的一報若正顯示在小地圖上，新圖層畫好後再移除，避免閃爍
+	const oldGeojson = TREM.EEW.get(data.id)?.geojson;
 
 	TREM.EEW.get(data.id).geojson = L.geoJson.vt(MapData.tw_town, {
 		minZoom   : 7,
@@ -5214,6 +5237,11 @@ TREM.Earthquake.on("eew", (data) => {
 			}
 		},
 	});
+
+	if (oldGeojson && Maps.mini.hasLayer(oldGeojson))
+		replaceLayer(oldGeojson, TREM.EEW.get(data.id).geojson, Maps.mini);
+	else
+		oldGeojson?.remove();
 
 	// 關閉 TREM 速報通知時，只送其他來源的速報
 	if (setting["webhook.url"] != "" && !(setting["trem-eew.No-Notification"] && data.author == "trem") && webhookInTime(`${data.replay_time ? "replay" : "eew"}:${data.id}`, time.getTime()))
@@ -5984,7 +6012,8 @@ function updateText() {
 		if (!TREM.EEW.get(key)?.CircleSTW?.getElement()?.classList?.contains("hide"))
 			TREM.EEW.get(key)?.CircleSTW?.getElement()?.classList?.add("hide");
 
-		if (TREM.EEW.get(key)?.geojson)
+		// 每秒都會執行：目前顯示的這一報不要移除再加回，否則色塊會每秒閃一次
+		if (TREM.EEW.get(key)?.geojson && key != INFO[TINFO].ID)
 			TREM.EEW.get(key).geojson.remove();
 	}
 
@@ -5994,7 +6023,7 @@ function updateText() {
 
 	if (TREM.EEW.get(INFO[TINFO].ID).CircleSTW) TREM.EEW.get(INFO[TINFO].ID).CircleSTW.getElement()?.classList?.remove("hide");
 
-	if (TREM.EEW.get(INFO[TINFO].ID)?.geojson) TREM.EEW.get(INFO[TINFO].ID).geojson.addTo(Maps.mini);
+	if (TREM.EEW.get(INFO[TINFO].ID)?.geojson && !Maps.mini.hasLayer(TREM.EEW.get(INFO[TINFO].ID).geojson)) TREM.EEW.get(INFO[TINFO].ID).geojson.addTo(Maps.mini);
 
 	const Num = Math.round(((NOW().getTime() - INFO[TINFO].Time) * 4 / 10) / INFO[TINFO].Depth);
 	const Catch = document.getElementById("box-10");
