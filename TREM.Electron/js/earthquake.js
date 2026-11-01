@@ -1912,7 +1912,8 @@ function handler(Json) {
 
 			const pgv = current_data.v ?? current_data.pgv;
 
-			station_tooltip = `<div>${keys[index]}</div><div>${current_station_data.Loc}</div><div>${amount}</div><div>${pgv}</div><div>${current_data.i}</div>`;
+			// 新的即時資料沒有 PGV，有才顯示
+			station_tooltip = `<div>${keys[index]}</div><div>${current_station_data.Loc}</div><div>PGA ${amount} gal</div>${pgv != null ? `<div>PGV ${pgv} kine</div>` : ""}<div>計測震度 ${current_data.i}</div>`;
 
 			if (rtstation1 == "") {
 				if (keys.includes(setting["Real-time.station"])) {
