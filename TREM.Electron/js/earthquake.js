@@ -11,7 +11,7 @@ const { fetchStationList, fetchLegacyStationList } = require("../js/station_list
 const { SSEStream } = require("../js/sse.js");
 const { apiFetch, startProbing, setLogger: setEndpointLogger } = require("../js/endpoints.js");
 const { realNow, adoptServerTime, startClock } = require("../js/clock.js");
-const { sendWebhook } = require("../js/webhook.js");
+const { sendWebhook, refreshWebhookImage } = require("../js/webhook.js");
 const route = new Route();
 
 const JSZip = require("jszip");
@@ -5460,12 +5460,47 @@ TREM.Earthquake.on("eew", (data) => {
 			log(`Posting EEW Webhook ${data.id} #${data.number}`, 1, "Webhook", "eew");
 			dump({ level: 0, message: "Posting EEW Webhook", origin: "Webhook" });
 			// 同一個地震的後續報數編輯原訊息，並換上當下的地圖截圖
-			sendWebhook(setting["webhook.url"], msg, { key: `${data.replay_time ? "replay" : "eew"}:${data.id}`, image: true }).catch((error) => {
+			const key = `${data.replay_time ? "replay" : "eew"}:${data.id}`;
+			sendWebhook(setting["webhook.url"], msg, { key, image: true }).catch((error) => {
 				log(error, 3, "Webhook", "eew");
 				dump({ level: 2, message: error, origin: "Webhook" });
 			});
+			startWebhookLive(data.id, key);
 		}, 2000);
 });
+
+// 速報發出後每 2 秒更新一次 Discord 訊息的截圖，直到所在地 S 波抵達
+const WEBHOOK_LIVE_INTERVAL_MS = 2_000;
+const WEBHOOK_LIVE_MAX_MS = 120_000;
+const webhookLive = new Map();
+
+function startWebhookLive(id, key) {
+	if (webhookLive.has(key)) return;
+
+	const start = Date.now();
+
+	const stop = () => {
+		clearInterval(timer);
+		webhookLive.delete(key);
+	};
+
+	const timer = setInterval(() => {
+		const info = INFO.find((i) => i.ID == id);
+		const cancelled = TREM.EEW.get(id)?.Cancel != undefined;
+
+		// 速報已結束、取消或沒有震源深度（無法推算抵達時間）：不再更新
+		if (!info || cancelled || info.alert_sTime == null || Date.now() - start > WEBHOOK_LIVE_MAX_MS) return stop();
+
+		const arrived = NOW().getTime() > info.alert_sTime;
+
+		// 抵達後確定送出一張（上一次還在送時會略過）才停
+		refreshWebhookImage(setting["webhook.url"], key)
+			.then((done) => arrived && done && stop())
+			.catch((error) => log(error, 3, "Webhook", "eew-live"));
+	}, WEBHOOK_LIVE_INTERVAL_MS);
+
+	webhookLive.set(key, timer);
+}
 
 /** 速報的發報單位名稱。 */
 function eewProvider(data) {

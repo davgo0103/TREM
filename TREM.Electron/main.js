@@ -822,7 +822,7 @@ ipcMain.on("screenshotEEW", async (event, json) => {
 	}
 });
 
-// Webhook 附圖：擷取主視窗，寬度超過 1024 時縮小
+// Webhook 附圖：擷取主視窗，寬度超過 1024 時縮小，存成 JPEG 減少上傳量
 ipcMain.handle("webhook:capture", async () => {
 	if (!MainWindow || MainWindow.isDestroyed()) return null;
 
@@ -832,7 +832,7 @@ ipcMain.handle("webhook:capture", async () => {
 
 	if (image.getSize().width > 1024) image = image.resize({ width: 1024, quality: "best" });
 
-	return image.toPNG();
+	return image.toJPEG(85);
 });
 
 ipcMain.on("screenshotEEWI", async (event, json) => {
