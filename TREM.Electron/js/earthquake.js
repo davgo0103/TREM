@@ -4385,7 +4385,7 @@ ipcRenderer.on("update-available-Notification", (event, version, getVersion, inf
 			});
 		}
 
-	showDialog("success", `有可用的${info.releaseName}版本更新`, info.releaseNotes.replace("<p>", "").replaceAll("<br>", "").replace("</p>", ""),
+	showDialog("success", `有可用的${info?.releaseName ?? version}版本更新`, String(info?.releaseNotes ?? "").replace("<p>", "").replaceAll("<br>", "").replace("</p>", ""),
 		1, "update", () => {
 			openURL(`https://github.com/davgo0103/TREM/releases/tag/v${version}`);
 		}, "前往更新", "暫緩更新", () => void 0, 60);
@@ -5518,7 +5518,7 @@ TREM.Earthquake.on("trem-eq", (data) => {
 
 		for (let index = 0, keys = Object.keys(data.list), n = keys.length; index < n; index++) {
 			if (data.list[keys[index]] > Max_Intensity) Max_Intensity = data.list[keys[index]];
-			description += `${current_station_data.Loc} 最大震度 > ${IntensityI(data.list[keys[index]])}\n`;
+			description += `${station[keys[index]]?.Loc ?? keys[index]} 最大震度 > ${IntensityI(data.list[keys[index]])}\n`;
 			state_station = index + 1;
 		}
 
@@ -5565,7 +5565,7 @@ TREM.Earthquake.on("trem-eq", (data) => {
 		description += `\n開始時間 > ${Now2}\n\n`;
 
 		for (let index = 0, keys = Object.keys(data.list), n = keys.length; index < n; index++) {
-			description += `${current_station_data.Loc} 最大震度 > ${IntensityI(data.list[keys[index]])}\n`;
+			description += `${station[keys[index]]?.Loc ?? keys[index]} 最大震度 > ${IntensityI(data.list[keys[index]])}\n`;
 			state_station = index + 1;
 		}
 
