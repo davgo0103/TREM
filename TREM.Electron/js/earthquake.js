@@ -11,7 +11,7 @@ const { fetchStationList, fetchLegacyStationList } = require("../js/station_list
 const { SSEStream } = require("../js/sse.js");
 const { apiFetch, startProbing, setLogger: setEndpointLogger } = require("../js/endpoints.js");
 const { realNow, adoptServerTime, startClock } = require("../js/clock.js");
-const { sendWebhook, refreshWebhookImage } = require("../js/webhook.js");
+const { sendWebhook, refreshWebhookImage, hasWebhookMessage } = require("../js/webhook.js");
 const route = new Route();
 
 const JSZip = require("jszip");
@@ -2258,6 +2258,8 @@ function handler(Json) {
 	const list = [];
 
 	if (!All.length) {
+		if (rtsWebhookEvent) rtsWebhookEvent.ended = true;
+
 		PGAtag = -1;
 		PGALimit = 0;
 		IMAXdata = {};
@@ -2268,6 +2270,8 @@ function handler(Json) {
 		}
 
 		if (All[0].intensity > PGAtag) {
+			rtsWebhook(Json, All);
+
 			if (setting["audio.realtime"])
 				if (All[0].intensity >= 5 && PGAtag < 5) {
 					log("Playing Audio > int2", 1, "Audio", "handler");
@@ -5433,7 +5437,7 @@ TREM.Earthquake.on("eew", (data) => {
 			log(`Posting EEW Webhook ${data.id} #${data.number}`, 1, "Webhook", "eew");
 			dump({ level: 0, message: "Posting EEW Webhook", origin: "Webhook" });
 			// 同一個地震的後續報數編輯原訊息，並換上當下的地圖截圖
-			const key = `${data.replay_time ? "replay" : "eew"}:${data.id}`;
+			const key = eewWebhookKey(data);
 			sendWebhook(setting["webhook.url"], msg, { key, image: true }).catch((error) => {
 				log(error, 3, "Webhook", "eew");
 				dump({ level: 2, message: error, origin: "Webhook" });
@@ -5441,6 +5445,97 @@ TREM.Earthquake.on("eew", (data) => {
 			startWebhookLive(data.id, key);
 		}, 2000);
 });
+
+// 震動檢測（即時測站觸發）的 Webhook：同一次震動編輯同一則訊息，震度升級時更新內容與截圖
+// 發出後 2 分鐘內收到 CWA 或 TREM 速報時，由速報接手編輯這則訊息（見 eewWebhookKey）
+const RTS_WEBHOOK_TAKEOVER_MS = 120_000;
+let rtsWebhookEvent = null;
+
+function rtsWebhook(Json, All) {
+	if (setting["webhook.url"] == "" || !setting["trem-eq.alert.Notification"]) return;
+
+	if (All[0].intensity < Number(setting["trem-eq.alert.Notification.Intensity"])) return;
+
+	const time = Json.time ?? Json.Time;
+
+	if (!rtsWebhookEvent || rtsWebhookEvent.ended)
+		rtsWebhookEvent = { key: `rts:${time}`, start: time, sentAt: Date.now(), claimed: false, ended: false };
+
+	const event = rtsWebhookEvent;
+
+	if (event.claimed || !webhookInTime(event.key, event.start)) return;
+
+	// 依縣市整理最大震度與 PGA
+	const counties = {};
+
+	for (const s of All) {
+		if (!s.loc) continue;
+
+		const id = s.uuid.split("-")[2];
+		const data = Json.station ? Json.station[id] : Json[id];
+		const pga = data?.v ?? data?.pga ?? 0;
+		const county = (counties[s.loc.split(" ")[0]] ??= { intensity: -1, pga: 0 });
+
+		if (s.intensity > county.intensity) county.intensity = s.intensity;
+
+		if (pga > county.pga) county.pga = pga;
+	}
+
+	const max = All[0].intensity;
+	const title = max > 4 ? "強震檢測" : max > 1 ? "震動檢測" : "弱反應";
+	let description = `開始時間 > ${timeconvert(new Date(event.start)).format("YYYY/MM/DD HH:mm:ss")}\n\n`;
+
+	for (const [name, county] of Object.entries(counties).sort((a, b) => b[1].intensity - a[1].intensity || b[1].pga - a[1].pga).slice(0, 10))
+		description += `${name} 最大震度 > ${IntensityI(county.intensity)}（${county.pga} gal）\n`;
+
+	description += `\n共 ${All.length} 站觸發`;
+
+	const msg = {
+		username   : "TREMV | 臺灣即時地震監測變體",
+		avatar_url : "https://avatars.githubusercontent.com/u/91672109?s=128",
+		content    : setting["tts.Notification"] ? `${title}\n${description}` : title,
+		tts        : setting["tts.Notification"],
+		embeds     : [
+			{
+				author      : { name: title },
+				description : description,
+				// 與地圖上的震度顏色相同（含自訂配色）
+				color       : parseInt(String(TREM.color(max)).replace("#", ""), 16) || 0x757575,
+				footer      : { text: "TREMV 即時測站（非正式速報）" },
+				timestamp   : new Date().toISOString(),
+			},
+		],
+	};
+
+	log(`Posting ${title} Webhook (${event.key})`, 1, "Webhook", "rts");
+	dump({ level: 0, message: `Posting ${title} Webhook`, origin: "Webhook" });
+	sendWebhook(setting["webhook.url"], msg, { key: event.key, image: true }).catch((error) => {
+		log(error, 3, "Webhook", "rts");
+		dump({ level: 2, message: error, origin: "Webhook" });
+	});
+}
+
+/** 速報的 Webhook 事件識別；剛發出的震動檢測訊息由 CWA 或 TREM 速報接手編輯 */
+const eewWebhookKeys = new Map();
+
+function eewWebhookKey(data) {
+	if (eewWebhookKeys.has(data.id)) return eewWebhookKeys.get(data.id);
+
+	let key = `${data.replay_time ? "replay" : "eew"}:${data.id}`;
+	const event = rtsWebhookEvent;
+
+	if (event && !event.claimed && (data.author == "cwa" || data.author == "trem") && Date.now() - event.sentAt < RTS_WEBHOOK_TAKEOVER_MS && hasWebhookMessage(event.key)) {
+		event.claimed = true;
+		key = event.key;
+		log(`EEW ${data.id} takes over ${event.key}`, 1, "Webhook", "eew");
+	}
+
+	eewWebhookKeys.set(data.id, key);
+
+	if (eewWebhookKeys.size > 200) eewWebhookKeys.delete(eewWebhookKeys.keys().next().value);
+
+	return key;
+}
 
 // 重播或延遲送達的舊警報不發 Webhook。以同一事件第一次收到時判斷，
 // 已發出的地震後續報數照常發送；webhook.maxAge 為 0 時不限制

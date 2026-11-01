@@ -238,4 +238,7 @@ async function refreshWebhookImage(urls, key) {
 	return true;
 }
 
-module.exports = { sendWebhook, refreshWebhookImage, parseUrls, isDiscord };
+/** 這個事件是否已發出（或正在發送）訊息，可供其他事件接手編輯 */
+const hasWebhookMessage = (key) => sent.has(key) || queue.has(key);
+
+module.exports = { sendWebhook, refreshWebhookImage, hasWebhookMessage, parseUrls, isDiscord };
