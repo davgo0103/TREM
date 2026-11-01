@@ -459,3 +459,49 @@ code {
 #Test.hide {
 	display: none;
 }
+
+/* Webhook 最近發送紀錄 */
+.webhook-history {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.webhook-history-empty {
+    color: rgba(var(--md-sys-color-on-surface-variant), .6);
+    font-size: 14px;
+}
+
+.webhook-history-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border-radius: 12px;
+    background-color: rgba(var(--md-sys-color-on-surface-variant), .08);
+}
+
+.webhook-history-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.webhook-history-title {
+    color: rgb(var(--md-sys-color-on-surface));
+    font-size: 15px;
+}
+
+.webhook-history-meta {
+    color: rgba(var(--md-sys-color-on-surface-variant), .8);
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.webhook-history-delete {
+    flex-shrink: 0;
+}

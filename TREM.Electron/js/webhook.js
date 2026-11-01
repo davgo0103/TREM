@@ -4,6 +4,7 @@
 // * Discord：同一事件（key）的後續訊息改為編輯第一則訊息；可附上截圖，編輯時一併換新圖
 // * Discord 限流（429）時依 retry_after 暫停該網址
 // * 其他網址：照舊 POST JSON，不附圖
+// * 最近發到 Discord 的訊息記在 localStorage（各視窗共用），可在設定頁刪除
 const { ipcRenderer } = require("electron");
 
 const MESSAGE_EXPIRY_MS = 600_000;
@@ -27,6 +28,47 @@ const pausedUntil = new Map();
 const isDiscord = (url) => /(^|\.)discord(app)?\.com$/i.test(url.hostname) && url.pathname.startsWith("/api/webhooks/");
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const HISTORY_KEY = "webhook.history";
+const HISTORY_MAX = 10;
+
+/** @returns {{ url: string, id: string, title: string, description: string, time: number }[]} 新的在前 */
+function getWebhookHistory() {
+	try {
+		const list = JSON.parse(localStorage.getItem(HISTORY_KEY));
+		return Array.isArray(list) ? list : [];
+	} catch {
+		return [];
+	}
+}
+
+function removeHistory(url, id) {
+	localStorage.setItem(HISTORY_KEY, JSON.stringify(getWebhookHistory().filter((h) => !(h.url == url && h.id == id))));
+}
+
+/** 新發或編輯成功後記錄（同一則訊息只保留一筆，移到最前面） */
+function recordHistory(url, id, body) {
+	const embed = body.embeds?.[0] ?? {};
+	const entry = {
+		url         : url.href,
+		id          : String(id),
+		title       : String(embed.author?.name || embed.title || body.content || "Webhook").split("\n")[0].slice(0, 80),
+		description : String(embed.description ?? "").split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 2).join(" / ").slice(0, 120),
+		time        : Date.now(),
+	};
+	const list = getWebhookHistory().filter((h) => !(h.url == entry.url && h.id == entry.id));
+
+	localStorage.setItem(HISTORY_KEY, JSON.stringify([entry, ...list].slice(0, HISTORY_MAX)));
+}
+
+/** 刪除 Discord 上的訊息；已不存在（404）也視為刪除成功 */
+async function deleteWebhookMessage(entry) {
+	const res = await fetch(editUrl(new URL(entry.url), entry.id), { method: "DELETE" });
+
+	if (!res.ok && res.status != 404) throw new HttpError(res.status, await res.text(), 0);
+
+	removeHistory(entry.url, entry.id);
+}
 
 class HttpError extends Error {
 	constructor(status, text, retryAfter) {
@@ -154,6 +196,7 @@ async function sendOne(url, body, { key, image }) {
 	if (messageId)
 		try {
 			await requestWithRetry(editUrl(url, messageId), "PATCH", editBody(body), image);
+			recordHistory(url, messageId, body);
 			return;
 		} catch (error) {
 			// 原訊息被刪除才改發新訊息，其他錯誤照常回報
@@ -163,6 +206,8 @@ async function sendOne(url, body, { key, image }) {
 	const post = new URL(url);
 	post.searchParams.set("wait", "true");
 	const message = await (await requestWithRetry(post, "POST", body, image)).json();
+
+	if (message?.id) recordHistory(url, message.id, body);
 
 	if (key != null && message?.id) {
 		if (!sent.has(key)) {
@@ -247,4 +292,4 @@ async function refreshWebhookImage(urls, key) {
 /** 這個事件是否已發出（或正在發送）訊息，可供其他事件接手編輯 */
 const hasWebhookMessage = (key) => sent.has(key) || queue.has(key);
 
-module.exports = { sendWebhook, refreshWebhookImage, hasWebhookMessage, parseUrls, isDiscord };
+module.exports = { sendWebhook, refreshWebhookImage, hasWebhookMessage, getWebhookHistory, deleteWebhookMessage, parseUrls, isDiscord };

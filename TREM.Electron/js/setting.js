@@ -5,7 +5,7 @@ const win = getCurrentWindow();
 TREM.Constants = require(path.resolve(__dirname, "../Constants/Constants.js"));
 
 const { fetchStationList } = require("../js/station_list.js");
-const { sendWebhook, parseUrls: parseWebhookUrls } = require("../js/webhook.js");
+const { sendWebhook, parseUrls: parseWebhookUrls, getWebhookHistory, deleteWebhookMessage } = require("../js/webhook.js");
 
 document.onreadystatechange = () => {
 	if (document.readyState == "complete")
@@ -1497,6 +1497,84 @@ const webhook = async () => {
 		dump({ level: 2, message: error });
 	}
 };
+
+// Webhook 最近發送紀錄：主畫面發送後會寫入 localStorage，這裡透過 storage 事件即時更新
+function renderWebhookHistory() {
+	const container = document.getElementById("webhook-history");
+
+	if (!container) return;
+
+	const history = getWebhookHistory();
+
+	if (!history.length) {
+		const empty = document.createElement("span");
+		empty.className = "webhook-history-empty";
+		empty.textContent = "尚無發送紀錄";
+		container.replaceChildren(empty);
+		return;
+	}
+
+	// 有多個 Webhook 時標示是哪一個（只顯示 ID 末 4 碼，不顯示 token）
+	const multiple = new Set(history.map((h) => h.url)).size > 1;
+	const pad = (n) => String(n).padStart(2, "0");
+
+	container.replaceChildren(...history.map((entry) => {
+		const date = new Date(entry.time);
+		const time = `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+		const hookId = new URL(entry.url).pathname.split("/")[3] ?? "";
+
+		const item = document.createElement("div");
+		item.className = "webhook-history-item";
+
+		const text = document.createElement("div");
+		text.className = "webhook-history-text";
+
+		const title = document.createElement("span");
+		title.className = "webhook-history-title";
+		title.textContent = entry.title;
+
+		const meta = document.createElement("span");
+		meta.className = "webhook-history-meta";
+		meta.textContent = [
+			time,
+			multiple ? `Webhook …${hookId.slice(-4)}` : "",
+			entry.description,
+		].filter(Boolean).join(" · ");
+		meta.title = entry.description;
+
+		text.append(title, meta);
+
+		const button = document.createElement("button");
+		button.className = "filled-tonal-button md3-ripple webhook-history-delete";
+		const label = document.createElement("span");
+		label.className = "filled-tonal-button-label";
+		label.textContent = "刪除";
+		button.appendChild(label);
+		button.onclick = () => showDialog("warn", "刪除 Discord 訊息", `確定要刪除這則訊息嗎？\n${entry.title}（${time}）\n\nDiscord 頻道裡的訊息也會一併刪除。`, 1, "delete", async () => {
+			button.disabled = true;
+
+			try {
+				await deleteWebhookMessage(entry);
+				log(`Deleted webhook message ${entry.id}`, 1, "Setting", "webhook-history");
+			} catch (error) {
+				button.disabled = false;
+				showDialog("error", "刪除失敗", `無法刪除 Discord 訊息\n${error}`);
+				log(error, 3, "Setting", "webhook-history");
+			}
+
+			renderWebhookHistory();
+		}, "刪除", "取消");
+
+		item.append(text, button);
+		return item;
+	}));
+}
+
+window.addEventListener("storage", (event) => {
+	if (event.key == "webhook.history") renderWebhookHistory();
+});
+
+renderWebhookHistory();
 
 const colorUpdate = (el) => {
 	document.getElementById(el.id.replace(/\./g, "-")).style.backgroundColor = el.value;
