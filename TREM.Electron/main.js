@@ -819,16 +819,24 @@ ipcMain.on("screenshotEEW", async (event, json) => {
 });
 
 // Webhook 附圖：擷取主視窗，寬度超過 1024 時縮小，存成 JPEG 減少上傳量
-ipcMain.handle("webhook:capture", async () => {
+// full：原始解析度的 PNG（太大時改用高品質 JPEG），其餘縮到寬 1024 的 JPEG
+ipcMain.handle("webhook:capture", async (event, { full = false } = {}) => {
 	if (!MainWindow || MainWindow.isDestroyed()) return null;
 
 	let image = await MainWindow.webContents.capturePage();
 
 	if (image.isEmpty()) return null;
 
+	if (full) {
+		const png = image.toPNG();
+
+		// Discord 上傳上限 10 MB
+		return png.length < 8 * 1024 * 1024 ? { type: "image/png", data: png } : { type: "image/jpeg", data: image.toJPEG(95) };
+	}
+
 	if (image.getSize().width > 1024) image = image.resize({ width: 1024, quality: "best" });
 
-	return image.toJPEG(85);
+	return { type: "image/jpeg", data: image.toJPEG(85) };
 });
 
 ipcMain.on("screenshotEEWI", async (event, json) => {

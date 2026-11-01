@@ -5417,8 +5417,8 @@ function startWebhookLive(id, key) {
 
 		const arrived = NOW().getTime() > info.alert_sTime;
 
-		// 抵達後確定送出一張（上一次還在送時會略過）才停
-		refreshWebhookImage(setting["webhook.url"], key)
+		// 抵達後確定送出一張原始畫質的（上一次還在送時會略過）才停
+		refreshWebhookImage(setting["webhook.url"], key, { full: arrived })
 			.then((done) => arrived && done && stop())
 			.catch((error) => log(error, 3, "Webhook", "eew-live"));
 	}, WEBHOOK_LIVE_INTERVAL_MS);

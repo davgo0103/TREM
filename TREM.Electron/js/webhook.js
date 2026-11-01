@@ -8,7 +8,6 @@
 const { ipcRenderer } = require("electron");
 
 const MESSAGE_EXPIRY_MS = 600_000;
-const IMAGE_NAME = "earthquake.jpg";
 
 /** key → Map<url, messageId> */
 const sent = new Map();
@@ -113,11 +112,11 @@ function prune() {
 		}
 }
 
-/** 擷取主視窗畫面（最寬 1024，JPEG），失敗回傳 null。 */
-async function captureMap() {
+/** 擷取主視窗畫面（一般最寬 1024 的 JPEG；full 為原始畫質），失敗回傳 null。 */
+async function captureMap(full = false) {
 	try {
-		const jpeg = await ipcRenderer.invoke("webhook:capture");
-		return jpeg ? new Blob([jpeg], { type: "image/jpeg" }) : null;
+		const image = await ipcRenderer.invoke("webhook:capture", { full });
+		return image ? new Blob([image.data], { type: image.type }) : null;
 	} catch {
 		return null;
 	}
@@ -127,15 +126,16 @@ async function captureMap() {
 function buildRequest(body, image) {
 	if (!image) return { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
 
+	const name = image.type == "image/png" ? "earthquake.png" : "earthquake.jpg";
 	const payload = structuredClone(body);
 
-	if (payload.embeds?.[0]) payload.embeds[0].image = { url: `attachment://${IMAGE_NAME}` };
+	if (payload.embeds?.[0]) payload.embeds[0].image = { url: `attachment://${name}` };
 
-	payload.attachments = [{ id: 0, filename: IMAGE_NAME }];
+	payload.attachments = [{ id: 0, filename: name }];
 
 	const form = new FormData();
 	form.append("payload_json", JSON.stringify(payload));
-	form.append("files[0]", image, IMAGE_NAME);
+	form.append("files[0]", image, name);
 	return { body: form };
 }
 
@@ -261,9 +261,11 @@ async function sendWebhook(urls, body, { key, image = false } = {}) {
  * 上一次還在送、還沒有訊息可編輯、或該網址正被限流時，直接略過這一次。
  * @param {string} urls setting["webhook.url"]
  * @param {string} key 與 sendWebhook 相同的事件識別
+ * @param {object} [options]
+ * @param {boolean} [options.full] 用原始畫質（最後一張）
  * @returns {Promise<boolean>} 是否有送出
  */
-async function refreshWebhookImage(urls, key) {
+async function refreshWebhookImage(urls, key, { full = false } = {}) {
 	const body = lastBody.get(key);
 	const messages = sent.get(key);
 
@@ -275,12 +277,12 @@ async function refreshWebhookImage(urls, key) {
 	if (!targets.length) return false;
 
 	const job = (async () => {
-		const jpeg = await captureMap();
+		const image = await captureMap(full);
 
-		if (!jpeg) return;
+		if (!image) return;
 
 		// 限流或失敗就等下一次，不重試
-		await Promise.allSettled(targets.map((url) => request(editUrl(url, messages.get(url.href)), "PATCH", editBody(body), jpeg)));
+		await Promise.allSettled(targets.map((url) => request(editUrl(url, messages.get(url.href)), "PATCH", editBody(body), image)));
 	})();
 
 	queue.set(key, job);
