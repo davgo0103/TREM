@@ -5469,8 +5469,8 @@ TREM.Earthquake.on("eew", (data) => {
 		}, 2000);
 });
 
-// 速報發出後每 2 秒更新一次 Discord 訊息的截圖，直到所在地 S 波抵達
-const WEBHOOK_LIVE_INTERVAL_MS = 2_000;
+// 速報發出後每 5 秒更新一次 Discord 訊息的截圖，直到所在地 S 波抵達
+const WEBHOOK_LIVE_INTERVAL_MS = 5_000;
 const WEBHOOK_LIVE_MAX_MS = 120_000;
 const webhookLive = new Map();
 
