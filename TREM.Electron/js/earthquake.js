@@ -5324,11 +5324,10 @@ function rtsWebhook(Json, All) {
 	description += `\n共 ${All.length} 站觸發`;
 
 	const msg = {
-		username   : "TREMV | 臺灣即時地震監測變體",
-		avatar_url : "https://avatars.githubusercontent.com/u/91672109?s=128",
-		content    : setting["tts.Notification"] ? `${title}\n${description}` : title,
-		tts        : setting["tts.Notification"],
-		embeds     : [
+		...webhookIdentity(),
+		content : setting["tts.Notification"] ? `${title}\n${description}` : title,
+		tts     : setting["tts.Notification"],
+		embeds  : [
 			{
 				author      : { name: title },
 				description : description,
@@ -5346,6 +5345,18 @@ function rtsWebhook(Json, All) {
 		log(error, 3, "Webhook", "rts");
 		dump({ level: 2, message: error, origin: "Webhook" });
 	});
+}
+
+function webhookIdentity() {
+	try {
+		const { username, avatar_url } = JSON.parse(setting["webhook.body"]);
+		return {
+			...(username ? { username } : {}),
+			...(avatar_url ? { avatar_url } : {}),
+		};
+	} catch {
+		return {};
+	}
 }
 
 /** 速報的 Webhook 事件識別；剛發出的震動檢測訊息由 CWA 或 TREM 速報接手編輯 */
