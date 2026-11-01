@@ -1105,7 +1105,7 @@ async function init() {
 				} else if (Date.now() - report_get_timestamp > 600_000) {
 					ReportGET();
 					globalgc();
-				} else if (Date.now() - report_newest_check > 60_000) {
+				} else if (Date.now() - report_newest_check > REPORT_NEWEST_MS) {
 					report_newest_check = Date.now();
 					checkNewestReport();
 				}
@@ -3236,7 +3236,27 @@ function playNextAudio1() {
 // #endregion
 
 // #region Report Data
-// 每分鐘只查最新一筆，有新報告才重抓完整列表（同 TREM-Lite）
+// 定期只查最新一筆（ETag 驗證，沒變時只回 304），有新報告才重抓完整列表
+const REPORT_NEWEST_MS = 15_000;
+
+const isReportCached = (id) => {
+	const cached = storage.getItem("report_data");
+
+	return Array.isArray(cached) && cached.some((r) => r?.id === id);
+};
+
+// 抓完整列表後確認新報告真的存進來，沒有就重抓（最多 3 次），不必等下一輪
+function fetchNewReport(id, attempt = 1) {
+	ReportGET();
+	setTimeout(() => {
+		if (isReportCached(id)) return;
+
+		log(`New report ${id} not stored after attempt ${attempt}`, 2, "EQReportFetcher", "fetchNewReport");
+
+		if (attempt < 3) fetchNewReport(id, attempt + 1);
+	}, 5_000);
+}
+
 async function checkNewestReport() {
 	try {
 		const res = await apiFetch("https://api.core.exptech.dev/api/v2/eq/report", { timeout: 5_000 });
@@ -3244,11 +3264,10 @@ async function checkNewestReport() {
 		if (!res.ok) return;
 
 		const [newest] = await res.json();
-		const cached = storage.getItem("report_data");
 
-		if (newest && !(Array.isArray(cached) && cached.some((r) => r?.id === newest.id))) {
+		if (newest && !isReportCached(newest.id)) {
 			log(`New report ${newest.id}`, 1, "EQReportFetcher", "checkNewestReport");
-			ReportGET();
+			fetchNewReport(newest.id);
 		}
 	} catch (err) {
 		log(err, 3, "EQReportFetcher", "checkNewestReport");
@@ -3407,13 +3426,18 @@ function ReportGET(badcatch = false) {
 								if (!NewReportTag) NewReportTag = _report_data[0].id;
 
 								if ((NOW().getTime() - OriginTime) > 0 && NewReportTag != _report_data[0].id) {
-									if (replay != 0) return;
+									if (replay != 0) {
+										log(`Skip new report ${_report_data[0].id}: replay in progress`, 2, "EQReportFetcher", "ReportGET");
+										return;
+									}
 
-									if (!setting["report.changeView"]) return;
 									const report = _report_data[0];
 									NewReportTag = report.id;
 
-									if (!report.list)
+									// 不切換畫面時仍要把報告存起來，否則每次檢查都會把它當成新報告
+									if (!setting["report.changeView"])
+										log(`New report ${report.id}: report.changeView off, not displayed`, 1, "EQReportFetcher", "ReportGET");
+									else if (!report.list)
 										fetch(route.earthquakeReport(report.id))
 											.then((res) => {
 												if (res.ok) {
@@ -3663,13 +3687,18 @@ function ReportGET(badcatch = false) {
 								if (!NewReportTag) NewReportTag = _report_data[0].id;
 
 								if ((NOW().getTime() - OriginTime) > 0 && NewReportTag != _report_data[0].id) {
-									if (replay != 0) return;
+									if (replay != 0) {
+										log(`Skip new report ${_report_data[0].id}: replay in progress`, 2, "EQReportFetcher", "ReportGET");
+										return;
+									}
 
-									if (!setting["report.changeView"]) return;
 									const report = _report_data[0];
 									NewReportTag = report.id;
 
-									if (!report.list)
+									// 不切換畫面時仍要把報告存起來，否則每次檢查都會把它當成新報告
+									if (!setting["report.changeView"])
+										log(`New report ${report.id}: report.changeView off, not displayed`, 1, "EQReportFetcher", "ReportGET");
+									else if (!report.list)
 										fetch(route.earthquakeReport(report.id))
 											.then((res) => {
 												if (res.ok) {
