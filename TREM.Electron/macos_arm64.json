@@ -3,7 +3,7 @@
   "appId": "tw.exptech.tremv",
   "asar": true,
   "asarUnpack": [
-    "./audio",
+    "./audio",
     "./package.json"
   ],
   "mac": {
