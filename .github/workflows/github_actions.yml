@@ -49,14 +49,29 @@ jobs:
         node-version: 22
     - name: Restore dependencies
       run: npm ci
-    # 沒有 Apple 開發者憑證，使用 ad-hoc 簽章（Apple 晶片至少要有 ad-hoc 簽章才能執行）
+    # 沒有 Apple 開發者憑證，打包成 dmg 前先做 ad-hoc 簽章（Apple 晶片至少要有 ad-hoc 簽章才能執行）
+    - name: Ad-hoc sign hook
+      run: |
+        cat > "$RUNNER_TEMP/adhoc-sign.js" <<'EOF'
+        const { execFileSync } = require("child_process");
+        const path = require("path");
+        exports.default = async (context) => {
+          const app = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`);
+          execFileSync("codesign", ["--force", "--deep", "--sign", "-", app], { stdio: "inherit" });
+        };
+        EOF
     - name: Build
       run: >
         npx electron-builder --mac dmg --x64 --arm64 -p never
-        -c.mac.icon=TREM.icns -c.mac.identity=-
+        -c.mac.icon=TREM.icns "-c.afterPack=$RUNNER_TEMP/adhoc-sign.js"
         '-c.artifactName=${productName}-${version}-mac-${arch}.${ext}'
       env:
         CSC_IDENTITY_AUTO_DISCOVERY: false
+    - name: Verify signature
+      run: |
+        for app in dev/mac*/*.app; do
+          codesign --verify --deep --strict --verbose=2 "$app"
+        done
     - name: Upload to release
       run: gh release upload "${{ inputs.tag }}" dev/*.dmg --clobber
       env:
