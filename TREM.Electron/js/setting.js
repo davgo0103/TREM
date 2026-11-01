@@ -1467,37 +1467,60 @@ const webhook = async () => {
 			TREM.Localization.getString("Webhook_Dialog_Error_Empty"),
 		);
 
-	const url = setting["webhook.url"].match(
-		// eslint-disable-next-line no-useless-escape
-		/^https?:\/\/(?:canary|ptb)?\.?discord\.com\/api\/webhooks(?:\/v[0-9]\d*)?\/([^\/]+)\/([^\/]+)/i,
-	);
+	// 與實際發送通知相同，接受任何 http(s) 網址（Discord 或自架的 Webhook 服務）
+	let target;
 
-	if (!url || url.length <= 1)
+	try {
+		target = new URL(setting["webhook.url"]);
+	} catch {
+		target = null;
+	}
+
+	if (!target || !["http:", "https:"].includes(target.protocol))
 		return showDialog("error",
 			TREM.Localization.getString("Webhook_Dialog_Error_Title"),
 			TREM.Localization.getString("Webhook_Dialog_Error_Invalid"));
 
-	const { EmbedBuilder, WebhookClient } = require("discord.js");
+	// Discord 加上 wait=true 才會回傳訊息內容（含訊息與頻道 ID）
+	const isDiscord = /(^|\.)discord(app)?\.com$/i.test(target.hostname);
 
-	const embeds = [
-		new EmbedBuilder()
-			.setDescription("這是一則由 TREMV 發送的測試訊息")
-			.setColor("Blue")
-			.setFooter({ text: "ExpTech Studio", iconURL: "https://raw.githubusercontent.com/ExpTechTW/API/%E4%B8%BB%E8%A6%81%E7%9A%84-(main)/image/Icon/ExpTech.png" })
-			.setTimestamp(),
-	];
+	if (isDiscord) target.searchParams.set("wait", "true");
 
-	await new WebhookClient({ url: setting["webhook.url"] })
-		.send({ embeds, username: "TREMV | 臺灣即時地震監測變體", avatarURL: "https://cdn.discordapp.com/attachments/976452418114048051/976469802644291584/received_1354357138388018.webp", content: setting["tts.Notification"] ? "這是一則由 TREMV 發送的測試訊息" : "", tts: setting["tts.Notification"] })
-		.then(m => {
-			showDialog("success",
-				TREM.Localization.getString("Webhook_Dialog_Title"),
-				TREM.Localization.getString("Webhook_Dialog_Success").format(m.id, m.channel_id));
-		}).catch(error => {
-			showDialog("error", "Webhook 測試", `Webhook 發送測試訊息時發生錯誤\n${error}`);
-			log(error, 3, "Setting", "webhook");
-			dump({ level: 2, message: error });
+	const body = {
+		username   : "TREMV | 臺灣即時地震監測變體",
+		avatar_url : "https://cdn.discordapp.com/attachments/976452418114048051/976469802644291584/received_1354357138388018.webp",
+		content    : setting["tts.Notification"] ? "這是一則由 TREMV 發送的測試訊息" : "",
+		tts        : setting["tts.Notification"],
+		embeds     : [
+			{
+				description : "這是一則由 TREMV 發送的測試訊息",
+				color       : 0x3498db,
+				footer      : { text: "ExpTech Studio" },
+				timestamp   : new Date().toISOString(),
+			},
+		],
+	};
+
+	try {
+		const res = await fetch(target, {
+			method  : "POST",
+			headers : { "Content-Type": "application/json" },
+			body    : JSON.stringify(body),
 		});
+
+		if (!res.ok) throw new Error(`HTTP ${res.status} ${await res.text()}`);
+
+		const message = isDiscord ? await res.json() : null;
+		showDialog("success",
+			TREM.Localization.getString("Webhook_Dialog_Title"),
+			message
+				? TREM.Localization.getString("Webhook_Dialog_Success").format(message.id, message.channel_id)
+				: `Webhook 發送測試訊息成功（HTTP ${res.status}）`);
+	} catch (error) {
+		showDialog("error", "Webhook 測試", `Webhook 發送測試訊息時發生錯誤\n${error}`);
+		log(error, 3, "Setting", "webhook");
+		dump({ level: 2, message: error });
+	}
 };
 
 const colorUpdate = (el) => {

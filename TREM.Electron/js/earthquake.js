@@ -1822,7 +1822,8 @@ function handler(Json) {
 	Response = {};
 	MAXPGA = { pga: 0, station: "NA", level: 0 };
 
-	const Station_rm = (Json_rm) => Object.keys(Station).filter(key => !Object.keys(Json_rm).includes(key));
+	// Station 的 key 是 UUID（L-704-11E1600），即時資料的 key 是測站 ID（11E1600），需取 ID 比對
+	const Station_rm = (Json_rm) => Object.keys(Station).filter(key => !(key.split("-")[2] in Json_rm));
 
 	const removed = Json.station ? Station_rm(Json.station) : Station_rm(Json);
 

@@ -95,7 +95,6 @@ TREM.setLoginItemSettings({
 	args        : TREM.Configuration.data["windows.minimize"] ? ["--start"] : [],
 });
 
-TREM.commandLine.appendSwitch("disable-frame-rate-limit");
 
 function createWindow() {
 	MainWindow = TREM.Window.set("main", new BrowserWindow({
@@ -110,9 +109,7 @@ function createWindow() {
 		webPreferences : {
 			nodeIntegration      : true,
 			contextIsolation     : false,
-			enableRemoteModule   : true,
 			backgroundThrottling : false,
-			nativeWindowOpen     : true,
 		},
 	})).get("main");
 	remote.initialize();
@@ -165,9 +162,7 @@ function createSettingWindow() {
 		webPreferences : {
 			nodeIntegration      : true,
 			contextIsolation     : false,
-			enableRemoteModule   : true,
 			backgroundThrottling : false,
-			nativeWindowOpen     : true,
 		},
 	})).get("setting");
 	remote.enable(SettingWindow.webContents);
@@ -197,9 +192,7 @@ function createRTSWindow() {
 		webPreferences : {
 			nodeIntegration      : true,
 			contextIsolation     : false,
-			enableRemoteModule   : true,
 			backgroundThrottling : false,
-			nativeWindowOpen     : true,
 		},
 	})).get("rts");
 	remote.enable(RTSWindow.webContents);
@@ -232,9 +225,7 @@ function createIntensityWindow() {
 		webPreferences : {
 			nodeIntegration      : true,
 			contextIsolation     : false,
-			enableRemoteModule   : true,
 			backgroundThrottling : false,
-			nativeWindowOpen     : true,
 		},
 	})).get("Intensity");
 	remote.enable(IntensityWindow.webContents);
@@ -316,28 +307,56 @@ function downloadUpdate(cancellationToken) {
 }
 
 TREM.on("ready", () => {
-	if (TREM.Configuration.data["update.time"] != undefined) {
-		if (TREM.Configuration.data["update.time"] != 0) {
-			checkForUpdates();
-			update_time = TREM.Configuration.data["update.time"] * 3600000;
-			setInterval(() => {
-				checkForUpdates();
-			}, update_time);
-		} else {
-			checkForUpdates();
-			update_time = 3600000;
-			setInterval(() => {
-				checkForUpdates();
-			}, update_time);
-		}
-	} else {
-		checkForUpdates();
-		update_time = 3600000;
-		setInterval(() => {
-			checkForUpdates();
-		}, update_time);
-	}
+	cleanupDataFolder();
+
+	// 設定為不更新時完全不檢查
+	if (TREM.Configuration.data["update.mode"] == "never") return;
+
+	update_time = (+TREM.Configuration.data["update.time"] || 1) * 3600000;
+	checkForUpdates();
+	setInterval(checkForUpdates, update_time);
 });
+
+// 視窗只顯示本機頁面：外部網址一律交給系統瀏覽器，不在程式內導向或開新視窗
+TREM.on("web-contents-created", (_, contents) => {
+	contents.setWindowOpenHandler(({ url }) => {
+		if (url.startsWith("https://") || url.startsWith("http://")) shell.openExternal(url);
+
+		return { action: "deny" };
+	});
+	contents.on("will-navigate", (event, url) => {
+		if (!url.startsWith("file://")) event.preventDefault();
+	});
+});
+
+// 接收紀錄（userData/data，以毫秒時間戳命名）只保留一年；設定中指定的三個震度檔不刪
+const DATA_RETENTION_MS = 365 * 86400_000;
+
+async function cleanupDataFolder() {
+	const dir = path.join(TREM.getPath("userData"), "data");
+	const keep = new Set([
+		"intensity.cwa",
+		"intensity.palert",
+		"intensity.trem",
+	].map((key) => `${TREM.Configuration.data[key]}.json`));
+	const cutoff = Date.now() - DATA_RETENTION_MS;
+	let removed = 0;
+
+	try {
+		const files = await fs.promises.readdir(dir);
+		const old = files.filter((name) => !keep.has(name) && +name.split(".")[0] < cutoff);
+
+		// 分批刪除，避免一次佔用太多檔案控制代碼
+		for (let i = 0; i < old.length; i += 500) {
+			const results = await Promise.allSettled(old.slice(i, i + 500).map((name) => fs.promises.unlink(path.join(dir, name))));
+			removed += results.filter((r) => r.status === "fulfilled").length;
+		}
+
+		console.log(`data cleanup: removed ${removed} files older than ${DATA_RETENTION_MS / 86400_000} days`);
+	} catch (error) {
+		console.error("data cleanup failed:", error);
+	}
+}
 
 TREM.on("activate", () => {
 	if (MainWindow === null)

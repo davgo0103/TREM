@@ -60,14 +60,18 @@ function removelog() {
 	const list = fs.readdirSync(app.getPath("logs"));
 	let remove_logs = 0;
 
-	for (let i = 0; i < list.length; i++) {
-		const date = fs.statSync(`${app.getPath("logs")}/${list[i]}`);
+	for (let i = 0; i < list.length; i++)
+		// 每個視窗都會執行清理，檔案可能已被其他視窗刪除
+		try {
+			const file = path.join(app.getPath("logs"), list[i]);
 
-		if (Date.now() - date.ctimeMs > 86400 * 1000 * 7) {
-			fs.unlinkSync(`${app.getPath("logs")}\\${list[i]}`);
-			remove_logs += 1;
+			if (Date.now() - fs.statSync(file).ctimeMs > 86400 * 1000 * 7) {
+				fs.rmSync(file, { force: true });
+				remove_logs += 1;
+			}
+		} catch {
+			// 已被其他視窗刪除
 		}
-	}
 
 	log(`remove: ${remove_logs} logs`, 1, "dump", "removelog");
 }
@@ -76,14 +80,17 @@ function removeEEW() {
 	const list = fs.readdirSync(path.join(app.getPath("userData"), "EEW"));
 	let remove_EEW = 0;
 
-	for (let i = 0; i < list.length; i++) {
-		const date = fs.statSync(`${path.join(app.getPath("userData"), "EEW")}\\${list[i]}`);
+	for (let i = 0; i < list.length; i++)
+		try {
+			const file = path.join(app.getPath("userData"), "EEW", list[i]);
 
-		if (Date.now() - date.ctimeMs > 86400 * 1000 * 7) {
-			fs.unlinkSync(`${path.join(app.getPath("userData"), "EEW")}\\${list[i]}`);
-			remove_EEW += 1;
+			if (Date.now() - fs.statSync(file).ctimeMs > 86400 * 1000 * 7) {
+				fs.rmSync(file, { force: true });
+				remove_EEW += 1;
+			}
+		} catch {
+			// 已被其他視窗刪除
 		}
-	}
 
 	log(`remove: ${remove_EEW} EEW`, 1, "dump", "removeEEW");
 }
