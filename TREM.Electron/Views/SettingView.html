@@ -2096,15 +2096,37 @@
                                                 <span class="option-label-id">webhook.url</span>
                                             </span>
                                             <span class="option-label-description">
-                                                <span lang="en">Fill in the Webhook URL to send a message when an earthquake report is received. Separate multiple URLs with commas or spaces. For Discord, later EEW reports edit the first message and attach a map screenshot.</span>
+                                                <span lang="en">Fill in the Webhook URL to send a message when an earthquake report is received. Separate multiple URLs with commas or spaces.</span>
                                                 <span lang="ja">地震情報が受信時にメッセージを送信するウェブフック URL を入力してください。</span>
                                                 <span lang="kr">지진정보 수신 시 메세지를 발송할 Discord 웹훅 URL를 입력하세요.</span>
                                                 <span lang="ru">Заполните Вебхук(Webhook) ссылка для отправки сообщения при получении отчета о землетрясении.</span>
-                                                <span lang="zh-CN">填入 Discord Webhook URL，多个网址以逗号或空白分隔。Discord 会附上地图截图，同一个地震的后续报数会编辑原信息。重播模式可以检视发送信息。</span>
-                                                <span lang="zh-TW">填入 Discord Webhook URL，多個網址以逗號或空白分隔。Discord 會附上地圖截圖，同一個地震的後續報數會編輯原訊息。重播模式可以檢視發送訊息。</span>
+                                                <span lang="zh-CN">填入 Discord Webhook URL，多个网址以逗号或空白分隔。</span>
+                                                <span lang="zh-TW">填入 Discord Webhook URL，多個網址以逗號或空白分隔。</span>
                                             </span>
                                         </div>
                                         <input class="input-field" id="webhook.url" type="text" onchange="TextSave('webhook.url')" placeholder="https://discord.com/api/webhooks/...（多個網址以逗號或空白分隔）" />
+                                    </div>
+                                    <div class="option-container input-field">
+                                        <div class="option-label">
+                                            <span class="option-label-title">
+                                                <span lang="en">Alert Time Limit (seconds)</span>
+                                                <span lang="ja">警報の時間制限（秒）</span>
+                                                <span lang="kr">경보 시간 제한(초)</span>
+                                                <span lang="ru">Ограничение времени тревоги (сек.)</span>
+                                                <span lang="zh-CN">警报时间限制（秒）</span>
+                                                <span lang="zh-TW">警報時間限制（秒）</span>
+                                                <span class="option-label-id">webhook.maxAge</span>
+                                            </span>
+                                            <span class="option-label-description">
+                                                <span lang="en">EEW and TREM-EQ alerts whose earthquake happened longer ago than this are not sent, so replays do not trigger the Webhook. Later reports of an earthquake that was already sent are still sent. 0 = no limit.</span>
+                                                <span lang="ja">地震発生からこの秒数を超えた緊急地震速報と TREM-EQ 警報は送信しません（リプレイによる誤送信を防止）。0 で制限なし。</span>
+                                                <span lang="kr">지진 발생 후 이 시간(초)이 지난 경보는 발송하지 않습니다(리플레이 오발송 방지). 0 = 제한 없음.</span>
+                                                <span lang="ru">Тревоги о землетрясениях старше указанного времени не отправляются (защита от отправки при повторе). 0 — без ограничения.</span>
+                                                <span lang="zh-CN">地震发生超过此秒数的地震速报与 TREM-EQ 警报不发送，避免重播时误发。已发出的地震，后续报数照常更新。0 为不限制。</span>
+                                                <span lang="zh-TW">地震發生超過此秒數的地震速報與 TREM-EQ 警報不發送，避免重播時誤發。已發出的地震，後續報數照常更新。0 為不限制。</span>
+                                            </span>
+                                        </div>
+                                        <input class="input-field" id="webhook.maxAge" type="number" min="0" step="1" onchange="TextSave('webhook.maxAge')" placeholder="60" />
                                     </div>
                                     <div class="option-container input-field">
                                         <div class="option-label">

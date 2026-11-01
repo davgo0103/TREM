@@ -5407,7 +5407,7 @@ TREM.Earthquake.on("eew", (data) => {
 	});
 
 	// 關閉 TREM 速報通知時，只送其他來源的速報
-	if (setting["webhook.url"] != "" && !(setting["trem-eew.No-Notification"] && data.author == "trem"))
+	if (setting["webhook.url"] != "" && !(setting["trem-eew.No-Notification"] && data.author == "trem") && webhookInTime(`eew:${data.id}`, time.getTime()))
 		setTimeout(() => {
 			const showtime = timeconvert(time).format("YYYY/MM/DD HH:mm:ss");
 			const provider = eewProvider(data);
@@ -5441,6 +5441,24 @@ TREM.Earthquake.on("eew", (data) => {
 			startWebhookLive(data.id, key);
 		}, 2000);
 });
+
+// 重播或延遲送達的舊警報不發 Webhook。以同一事件第一次收到時判斷，
+// 已發出的地震後續報數照常發送；webhook.maxAge 為 0 時不限制
+const webhookInTimeCache = new Map();
+
+function webhookInTime(key, eventTime) {
+	const limit = Number(setting["webhook.maxAge"]);
+
+	if (!(limit > 0)) return true;
+
+	if (!webhookInTimeCache.has(key)) {
+		webhookInTimeCache.set(key, NOW().getTime() - eventTime <= limit * 1000);
+
+		if (webhookInTimeCache.size > 200) webhookInTimeCache.delete(webhookInTimeCache.keys().next().value);
+	}
+
+	return webhookInTimeCache.get(key);
+}
 
 // 速報發出後每 5 秒更新一次 Discord 訊息的截圖，直到所在地 S 波抵達
 const WEBHOOK_LIVE_INTERVAL_MS = 5_000;
@@ -5518,7 +5536,9 @@ TREM.Earthquake.on("trem-eq", (data) => {
 	+ ":" + (_now.getMinutes() < 10 ? "0" : "") + _now.getMinutes()
 	+ ":" + (_now.getSeconds() < 10 ? "0" : "") + _now.getSeconds();
 
-	if (setting["webhook.url"] != "" && setting["trem-eq.alert.Notification"] && data.alert) {
+	const webhookFresh = webhookInTime(`trem-eq:${data.id ?? data.time}`, data.time);
+
+	if (setting["webhook.url"] != "" && webhookFresh && setting["trem-eq.alert.Notification"] && data.alert) {
 		let state_station;
 		let Max_Intensity = 0;
 		let description = "警報\n";
@@ -5559,7 +5579,7 @@ TREM.Earthquake.on("trem-eq", (data) => {
 				dump({ level: 2, message: error, origin: "Webhook" });
 			});
 		}
-	} else if (setting["webhook.url"] != "" && setting["trem-eq.Notification"] && setting["dev.mode"]) {
+	} else if (setting["webhook.url"] != "" && webhookFresh && setting["trem-eq.Notification"] && setting["dev.mode"]) {
 		let state_station;
 		let description = "";
 

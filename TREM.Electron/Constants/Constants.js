@@ -364,6 +364,10 @@ const Constants = Object.freeze({
 			type  : "string",
 			value : "",
 		},
+		"webhook.maxAge": {
+			type  : "string",
+			value : "60",
+		},
 		"webhook.body": {
 			type  : "string",
 			value : JSON.stringify({
