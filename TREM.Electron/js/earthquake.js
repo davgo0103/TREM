@@ -3236,8 +3236,8 @@ function playNextAudio1() {
 // #endregion
 
 // #region Report Data
-// 定期只查最新一筆（ETag 驗證，沒變時只回 304），有新報告才重抓完整列表
-const REPORT_NEWEST_MS = 15_000;
+// 每 60 秒只查最新一筆（與 TREM-Lite 相同，ETag 驗證，沒變時只回 304），有新報告才重抓完整列表
+const REPORT_NEWEST_MS = 60_000;
 
 const isReportCached = (id) => {
 	const cached = storage.getItem("report_data");
