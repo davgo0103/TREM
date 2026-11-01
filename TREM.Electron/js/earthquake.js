@@ -4816,7 +4816,8 @@ function readIntensityXml(xml) {
 		status    : STATUS[infoType] ?? infoType,
 		final     : infoType === "最終",
 		area,
-		timestamp : Date.now(),
+		max       : Math.max(0, ...Object.keys(area).map(Number)),
+		timestamp : realNow(),
 	};
 }
 
@@ -4969,7 +4970,7 @@ function fetch_eew() {
 
 			for (const e of JSON.parse(data)) {
 				e.type = "eew";
-				e.timestamp = Date.now();
+				e.timestamp = realNow();
 				FCMdata(e, ServerType = "http");
 			}
 		},
@@ -5019,9 +5020,12 @@ function fetch_ntp() {
 }
 
 const stopReplay = function() {
-	if (Object.keys(EarthquakeList).length != 0) Cancel = true;
+	// 只有重播中才結束速報與檢知框；一般回到主畫面時不能把即時的速報一起結束
+	const replaying = replay != 0 || replayTemp != 0 || replayT != 0 || replaydir != 0 || replayD || replayF;
 
-	if (Object.keys(detected_list).length != 0) PGACancel = true;
+	if (replaying && Object.keys(EarthquakeList).length != 0) Cancel = true;
+
+	if (replaying && Object.keys(detected_list).length != 0) PGACancel = true;
 
 	if (replay != 0 || Report != 0 || replayTemp != 0 || replayT != 0 || replaydir != 0 || replayD || replayF) {
 		intensitytag = -1;
@@ -5309,8 +5313,10 @@ ipcRenderer.on("report-Notification", (event, report) => {
 });
 
 ipcRenderer.on("intensity-Notification", (event, intensity) => {
-	// console.log(intensity);
 	const info = intensity;
+	// 新的震度速報沒有對應的地震資料（eq），以速報本身的時間（id）代替
+	info.eq ??= { time: info.id ?? 0 };
+	info.max ??= Math.max(0, ...Object.keys(info.area ?? {}).map(Number));
 	const intensity1 = info.area;
 	let description = "";
 	let city0 = "";

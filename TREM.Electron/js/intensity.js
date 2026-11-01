@@ -363,9 +363,9 @@ TREM.Intensity = {
 			if (this.timer) {
 				clearTimeout(this.timer);
 				delete this.timer;
-				this.timer = setTimeout(() => this.clear, 60_000);
+				this.timer = setTimeout(() => this.clear(), 60_000);
 			} else {
-				this.timer = setTimeout(() => this.clear, 60_000);
+				this.timer = setTimeout(() => this.clear(), 60_000);
 			}
 		}
 	},
@@ -524,9 +524,9 @@ TREM.Intensity = {
 			if (this.timer) {
 				clearTimeout(this.timer);
 				delete this.timer;
-				this.timer = setTimeout(() => this.clear, 60_000);
+				this.timer = setTimeout(() => this.clear(), 60_000);
 			} else {
-				this.timer = setTimeout(() => this.clear, 60_000);
+				this.timer = setTimeout(() => this.clear(), 60_000);
 			}
 		} else if (rawIntensityData != undefined) {
 			const raw = rawIntensityData;
@@ -716,9 +716,9 @@ TREM.Intensity = {
 			if (this.timer) {
 				clearTimeout(this.timer);
 				delete this.timer;
-				this.timer = setTimeout(() => this.clear, 60_000);
+				this.timer = setTimeout(() => this.clear(), 60_000);
 			} else {
-				this.timer = setTimeout(() => this.clear, 60_000);
+				this.timer = setTimeout(() => this.clear(), 60_000);
 			}
 		}
 	},

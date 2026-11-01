@@ -39,7 +39,8 @@ function handleWindowControls() {
 	}
 }
 
-const wave_count = +localStorage.getItem("displayWaveCount") ?? 12;
+// 固定 8 張波形圖之外額外加開的張數，預設 0（原本的 +null ?? 12 實際上一直是 0）
+const wave_count = Number(localStorage.getItem("displayWaveCount")) || 0;
 let Realtimestation = app.Configuration.data["Real-time.station"];
 let Realtimestation1 = app.Configuration.data["Real-time.station.1"];
 let Realtimestation2 = app.Configuration.data["Real-time.station.2"];

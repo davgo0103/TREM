@@ -6,7 +6,6 @@ const os = require("os");
 const logger = require("electron-log");
 const path = require("path");
 const pushReceiver = require("electron-fcm-push-receiver");
-const cp = require("child_process");
 const remote = require("@electron/remote/main");
 const get_Version = TREM.getVersion();
 
@@ -727,22 +726,6 @@ ipcMain.on("Olddatabase_tsunami", (event, json) => {
 
 ipcMain.on("startPushReceiver", (event, arg) => {
 	pushReceiver.setup(MainWindow.webContents);
-});
-
-ipcMain.on("linkpathtest", (event, cmdPath, cmdStr) => {
-	const workerProcess = cp.spawn(cmdStr, { cwd: cmdPath, shell: true });
-
-	workerProcess.stdout.on("data", (data) => {
-		console.log("stdout: " + data);
-	});
-
-	workerProcess.stderr.on("data", (data) => {
-		console.log("stderr: " + data);
-	});
-
-	workerProcess.on("close", (code) => {
-		console.log("out code:" + code);
-	});
 });
 
 ipcMain.on("config:value", (event, key, value) => {

@@ -149,37 +149,3 @@ function dump(dumpData) {
 			"Debug",
 		][dumpData.level]}] [${nowTime}] [${dumpData.origin}]` + dumpData.message + "\r\n", "utf8");
 }
-
-function dumpUpload() {
-	const msg = {
-		APIkey        : "https://github.com/ExpTechTW",
-		Function      : "data",
-		Type          : "TREM-Dump",
-		FormatVersion : 1,
-		Value         : fs.readFileSync(latestLog).toString(),
-		UUID          : localStorage.UUID,
-	};
-	axios.post("https://exptech.mywire.org:1015", msg)
-		.then((res) => {
-			if (res.data.response == "Speed limit")
-				log("Dump 發送限制\n稍等 5 分鐘後再次嘗試", 3, "dump", "dumpUpload");
-
-			if (res.ok) {
-				log("Dump 發送成功", 3, "dump", "dumpUpload");
-			} else {
-				console.error(res);
-
-				switch (res.status) {
-					case 429: {
-						log("Dump 發送限制\n稍等 5 分鐘後再次嘗試", 3, "dump", "dumpUpload");
-						break;
-					}
-
-					default: break;
-				}
-			}
-		})
-		.catch((error) => {
-			log(`Dump 發送失敗\nError > ${error}`, 3, "dump", "dumpUpload");
-		});
-}

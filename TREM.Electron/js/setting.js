@@ -635,7 +635,7 @@ function CheckSave(id) {
 	if (id == "Real-time.alert" && value) {
 		runconsti = 0;
 		Real_time_alert_run();
-	} else if (id == "alert" && !value) {
+	} else if (id == "Real-time.alert" && !value) {
 		clearTimeout(Real_time_alert);
 		ipcRenderer.send("config:value", id, value);
 	} else if (id == "trem-eq.Notification" && value) {
@@ -1359,10 +1359,6 @@ function testreplaytime() {
 function testoldtremEEW() {
 	const oldtrem = document.getElementById("oldtrem").value;
 	ipcRenderer.send("testoldtremEEW", oldtrem);
-}
-
-function linkpathtest() {
-	ipcRenderer.send("linkpathtest", setting["link.path"], setting["link.name"]);
 }
 
 function reset() {
