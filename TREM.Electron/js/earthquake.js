@@ -4375,7 +4375,7 @@ ipcRenderer.on("update-available-Notification", (event, version, getVersion, inf
 		if (setting["webhook.url"] != "" && setting["checkForUpdates.Notification"]) {
 			log("Posting Notification Update Webhook", 1, "Webhook", "update-available-Notification");
 			dump({ level: 0, message: "Posting Notification Update Webhook", origin: "Webhook" });
-			const getVersionbody = TREM.Localization.getString("Notification_Update_Body").format(getVersion, version) + `\nhttps://github.com/yayacat/TREM/releases/tag/v${version}`;
+			const getVersionbody = TREM.Localization.getString("Notification_Update_Body").format(getVersion, version) + `\nhttps://github.com/davgo0103/TREM/releases/tag/v${version}`;
 			const msg = {
 				username   : "TREMV | 臺灣即時地震監測變體",
 				avatar_url : "https://avatars.githubusercontent.com/u/91672109?s=128",
@@ -4401,7 +4401,7 @@ ipcRenderer.on("update-available-Notification", (event, version, getVersion, inf
 
 	showDialog("success", `有可用的${info.releaseName}版本更新`, info.releaseNotes.replace("<p>", "").replaceAll("<br>", "").replace("</p>", ""),
 		1, "update", () => {
-			openURL(`https://github.com/yayacat/TREM/releases/tag/v${version}`);
+			openURL(`https://github.com/davgo0103/TREM/releases/tag/v${version}`);
 		}, "前往更新", "暫緩更新", () => void 0, 60);
 });
 

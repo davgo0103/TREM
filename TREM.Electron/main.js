@@ -379,7 +379,7 @@ autoUpdater.on("update-available", (info) => {
 			icon  : "TREM.ico",
 		}).on("click", () => {
 			logger.info(info);
-			shell.openExternal(`https://github.com/yayacat/TREM/releases/tag/v${info.version}`);
+			shell.openExternal(`https://github.com/davgo0103/TREM/releases/tag/v${info.version}`);
 		}).show();
 
 		switch (TREM.Configuration.data["update.mode"]) {
@@ -570,7 +570,7 @@ ipcMain.on("openFolder", (event, url) => {
 
 ipcMain.on("openURL", (event, url) => {
 	if (url === "releases")
-		shell.openExternal(`https://github.com/yayacat/TREM/releases/tag/v${get_Version}`);
+		shell.openExternal(`https://github.com/davgo0103/TREM/releases/tag/v${get_Version}`);
 	else
 		shell.openExternal(url);
 });
@@ -934,7 +934,7 @@ function trayIcon() {
 			label : `TREMV v${get_Version}`,
 			type  : "normal",
 			click : () => {
-				shell.openExternal("https://github.com/yayacat/TREM");
+				shell.openExternal("https://github.com/davgo0103/TREM");
 			},
 		},
 		{
