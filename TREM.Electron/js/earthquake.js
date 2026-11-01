@@ -621,6 +621,7 @@ if (!fs.existsSync(folder))
 
 const win = TREM.win;
 const roll = document.getElementById("rolllist");
+let rtsRollHidden = false;
 win.setAlwaysOnTop(false);
 
 let fullscreenTipTimeout;
@@ -2055,6 +2056,16 @@ function handler(Json) {
 
 	const All = (Json.Alert && Json.I && Json.I.length) ? Json.I : [];
 	const list = [];
+
+	// 震動檢測期間和速報一樣隱藏右側的地震報告；結束時若還有速報就維持隱藏
+	if (All.length && !rtsRollHidden) {
+		rtsRollHidden = true;
+		$(roll).fadeOut(200);
+	} else if (!All.length && rtsRollHidden) {
+		rtsRollHidden = false;
+
+		if (!Object.keys(eew).length) $(roll).fadeIn(200);
+	}
 
 	if (!All.length) {
 		if (rtsWebhookEvent) rtsWebhookEvent.ended = true;
@@ -5899,8 +5910,9 @@ function main(data) {
 			$("#map-legends").removeClass("show");
 			// hide minimap
 			$("#map-tw").removeClass("show");
-			// restore reports
-			$(roll).fadeIn(200);
+
+			// restore reports（震動檢測還在進行時維持隱藏）
+			if (!rtsRollHidden) $(roll).fadeIn(200);
 			clearInterval(Timers.epicenterBlinker);
 			delete Timers.epicenterBlinker;
 			clearInterval(Timers.eew);
