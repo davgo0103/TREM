@@ -1,12 +1,10 @@
-/* global maplibregl:false, Maps: false, IntensityToClassString: false, Maps.report: true, IntensityI: false, changeView: false, replay: true, replayT: true */
+/* global maplibregl:false, Maps: false, IntensityToClassString: false, Maps.report: true, IntensityI: false, changeView: false, replay: true, replayT: true, ReplayData: false, shell: false */
 
 TREM.Report = {
 	cache               : new Map(),
 	view                : "report-list",
 	reportList          : [],
 	reportListElement   : document.getElementById("report-list-container"),
-	lock                : false,
-	clock               : null,
 	api_key_verify      : false,
 	station             : {},
 	report_trem         : false,
@@ -271,179 +269,82 @@ TREM.Report = {
 		if (replay != 0) return;
 		changeView("main", "#mainView_btn");
 
-		if (report.download)
+		// 重播資料下載完整就讀本機檔案，否則向伺服器要
+		if (ReplayData.stateOf(report) == "complete") {
 			ipcRenderer.send("testoldtime", report.time);
-
-		if (report.trem)
-			ipcRenderer.send("testoldtimeEEW", report.trem);
-
-		if (!report.download || !report.trem) {
+		} else {
 			this.replayHttp = true;
 			ipcRenderer.send("testoldtimeEEW", report.time);
 		}
 	},
+
+	/** 下載重播資料；下載到一半的會從中斷處繼續 */
 	replaydownloader(id) {
-		if (this.lock) return;
-
-		this.lock = true;
 		const report = this.cache.get(id);
-		console.debug(report);
 
-		let time = report.time - 5000;
-		const time_hold = String(time / 1000);
-		const _end_time = time + 205000;
-
-		const downloader_progress = document.getElementById("downloader_progress");
-		const progressStep = 206;
-		let progresstemp = 0;
-
-		fs.mkdirSync(path.join(path.join(app.getPath("userData"), "replay_data"), time_hold), { recursive: true });
+		if (!report || ReplayData.progressOf(report) || ReplayData.stateOf(report) == "complete") return;
 
 		if (ReportTag) ReportTag = 0;
 
-		if (!report.download) {
-			const downloaderText = document.getElementById("report-replay-downloader-text");
+		ReplayData.download(report, () => this._updateDownloadButton(report))
+			.then(() => log(`Replay data downloaded: ${report.id}`, 1, "Report", "replaydownloader"))
+			.catch((err) => {
+				if (err?.name == "AbortError") return;
 
-			if (downloaderText) downloaderText.innerText = "下載中...";
-			this.clock = setInterval(() => {
-				if (report.download) return;
+				log(err, 3, "Report", "replaydownloader");
+				showDialog("error", "下載重播資料", `下載失敗，再按一次「繼續下載」會從中斷處接著下載。
+${err}`);
+			})
+			.finally(() => this._updateDownloadButton(report));
 
-				if (time > _end_time) {
-					clearInterval(this.clock);
-					console.debug("Finish!");
-
-					if (document.getElementById("report-replay-downloader-icon")) document.getElementById("report-replay-downloader-icon").innerText = "download_done";
-
-					if (document.getElementById("report-replay-downloader-text")) document.getElementById("report-replay-downloader-text").innerText = "下載完成!";
-					downloader_progress.style.display = "none";
-					report.download = true;
-					this.cache.set(report.id, report);
-					this.lock = false;
-					return;
-				}
-
-				const result = {
-					rts : {},
-					eew : {
-						eew  : [],
-						time : time,
-					},
-				};
-				const gettime = time / 1000;
-				fetch(this.route.rtsReplay(1, time))
-					.then((res) => {
-						if (res.ok) {
-							// console.debug(res);
-							res.json().then(res1 => {
-								// console.debug(res1);
-								result.rts = res1;
-								fetch(this.route.eewReplay(1, time))
-									.then((res0) => {
-										if (res0.ok) {
-											// console.debug(res);
-											res0.json().then(res2 => {
-												result.eew = Array.isArray(res2) ? { eew: res2, time } : res2;
-												fs.writeFile(`${path.join(path.join(app.getPath("userData"), "replay_data"), time_hold)}/${gettime}.trem`, JSON.stringify(result), () => {
-													time += 1000;
-
-													if (!report.download) {
-														progresstemp += (1 / progressStep) * 1;
-														downloader_progress.value = progresstemp;
-														downloader_progress.title = `${Math.round(progresstemp * 10000) / 100}%`;
-														downloader_progress.style.display = "";
-													}
-												});
-											});
-										} else {
-											console.error(res0);
-
-											switch (res0.status) {
-												case 429: {
-													log(res0.status, 3, "replaydownloader", "Report");
-													dump({ level: 2, message: res0.status });
-													break;
-												}
-
-												case 404: {
-													log(res0.status, 3, "replaydownloader", "Report");
-													dump({ level: 2, message: res0.status });
-													time += 1000;
-													break;
-												}
-
-												case 500: {
-													log(res.status, 3, "replaydownloader", "Report");
-													dump({ level: 2, message: res.status });
-													break;
-												}
-
-												default: break;
-											}
-										}
-									}).catch(err => {
-										this.lock = false;
-										console.log(err.message);
-										log(err, 3, "replaydownloader", "Report");
-										dump({ level: 2, message: err });
-									});
-							});
-						} else {
-							console.error(res);
-
-							switch (res.status) {
-								case 429: {
-									log(res.status, 3, "replaydownloader", "Report");
-									dump({ level: 2, message: res.status });
-									break;
-								}
-
-								case 404: {
-									log(res.status, 3, "replaydownloader", "Report");
-									dump({ level: 2, message: res.status });
-									time += 1000;
-									break;
-								}
-
-								case 500: {
-									log(res.status, 3, "replaydownloader", "Report");
-									dump({ level: 2, message: res.status });
-									break;
-								}
-
-								default: break;
-							}
-						}
-					}).catch(err => {
-						this.lock = false;
-						console.log(err.message);
-						log(err, 3, "replaydownloader", "Report");
-						dump({ level: 2, message: err });
-					});
-			}, 500);
-		} else {
-			downloader_progress.style.display = "none";
-			console.debug("Finish!(is download)");
-			this.lock = false;
-		}
+		this._updateDownloadButton(report);
 	},
+
+	/** 右鍵：刪除重播資料（下載中會先停止） */
 	replaydownloaderrm(id) {
 		const report = this.cache.get(id);
-		const time = report.time - 5000;
-		const time_hold = String(time / 1000);
 
-		fs.rm(path.join(path.join(app.getPath("userData"), "replay_data"), time_hold), { recursive: true }, () => {
-			if (document.getElementById("report-replay-downloader-icon")) document.getElementById("report-replay-downloader-icon").innerText = "download";
+		if (!report || (ReplayData.stateOf(report) == "none" && !ReplayData.progressOf(report))) return;
 
-			if (document.getElementById("report-replay-downloader-text")) document.getElementById("report-replay-downloader-text").innerText = "下載";
-			document.getElementById("downloader_progress").style.display = "none";
-			report.download = false;
-			this.cache.set(report.id, report);
-
-			if (this.lock) {
-				this.lock = false;
-				clearInterval(this.clock);
-			}
+		showDialog("warn", "刪除重播資料", `確定要刪除這筆地震的重播資料嗎？
+${report.loc ?? ""}`, 1, "delete", () => {
+			ReplayData.remove(report)
+				.catch((err) => log(err, 3, "Report", "replaydownloaderrm"))
+				.finally(() => this._updateDownloadButton(report));
 		});
+	},
+
+	openReplayFolder(id) {
+		const report = this.cache.get(id);
+
+		if (report) shell.openPath(ReplayData.dirOf(report));
+	},
+
+	/** 依下載狀態更新按鈕；只更新目前顯示中的報告，其他報告在背景下載時不影響畫面 */
+	_updateDownloadButton(report) {
+		const button = document.getElementById("report-replay-downloader");
+
+		if (!button || button.value != report.id) return;
+
+		const progress = ReplayData.progressOf(report);
+		const state = ReplayData.stateOf(report);
+		const bar = document.getElementById("downloader_progress");
+		const [icon, text] = progress ? ["downloading", `下載中 ${Math.floor(progress.done / progress.total * 100)}%`]
+			: state == "complete" ? ["download_done", "已下載"]
+				: state == "partial" ? ["download", "繼續下載"]
+					: ["download", "下載"];
+
+		document.getElementById("report-replay-downloader-icon").innerText = icon;
+		document.getElementById("report-replay-downloader-text").innerText = text;
+		bar.style.display = progress ? "" : "none";
+
+		if (progress) bar.value = progress.done / progress.total;
+
+		const hasData = progress || state != "none";
+		button.title = hasData ? "" : "下載這筆地震前後的測站與速報資料，之後重播不需連線";
+
+		for (const id of ["report-replay-folder", "report-replay-delete"])
+			document.getElementById(id).style.display = hasData ? "" : "none";
 	},
 	back() {
 		if (TREM.set_report_overview != 0)
@@ -748,34 +649,7 @@ TREM.Report = {
 								document.getElementById("report-detail-copy").style.display = "";
 								document.getElementById("report-detail-copy").value = report.id;
 
-								const timed = (report.time - 5000);
-								const time_hold = String(timed / 1000);
-								const _end_timed = (timed / 1000) + 305;
-
-								fs.access(`${path.join(path.join(app.getPath("userData"), "replay_data"), time_hold)}/${time_hold}.trem`, (err) => {
-									if (!err) {
-										if (document.getElementById("report-replay-downloader-icon")) document.getElementById("report-replay-downloader-icon").innerText = "download_done";
-
-										if (document.getElementById("report-replay-downloader-text")) document.getElementById("report-replay-downloader-text").innerText = "已下載!";
-										report.download = true;
-										this.cache.set(report.id, report);
-										fs.access(`${path.join(path.join(app.getPath("userData"), "replay_data"), time_hold)}/${_end_timed}.trem`, (err) => {
-											if (err) {
-												if (document.getElementById("report-replay-downloader-icon")) document.getElementById("report-replay-downloader-icon").innerText = "download";
-
-												if (document.getElementById("report-replay-downloader-text")) document.getElementById("report-replay-downloader-text").innerText = "下載中...";
-												report.download = false;
-												this.cache.set(report.id, report);
-											}
-										});
-									} else {
-										if (document.getElementById("report-replay-downloader-icon")) document.getElementById("report-replay-downloader-icon").innerText = "download";
-
-										if (document.getElementById("report-replay-downloader-text")) document.getElementById("report-replay-downloader-text").innerText = "下載";
-										report.download = false;
-										this.cache.set(report.id, report);
-									}
-								});
+								this._updateDownloadButton(report);
 
 								if (report.loc.startsWith("地震資訊")) {
 									document.getElementById("report-cwb").style.display = "none";
@@ -956,34 +830,7 @@ TREM.Report = {
 				document.getElementById("report-detail-copy").style.display = "";
 				document.getElementById("report-detail-copy").value = report.id;
 
-				const timed = (report.time - 5000);
-				const time_hold = String(timed / 1000);
-				const _end_timed = (timed / 1000) + 305;
-
-				fs.access(`${path.join(path.join(app.getPath("userData"), "replay_data"), time_hold)}/${time_hold}.trem`, (err) => {
-					if (!err) {
-						if (document.getElementById("report-replay-downloader-icon")) document.getElementById("report-replay-downloader-icon").innerText = "download_done";
-
-						if (document.getElementById("report-replay-downloader-text")) document.getElementById("report-replay-downloader-text").innerText = "已下載!";
-						report.download = true;
-						this.cache.set(report.id, report);
-						fs.access(`${path.join(path.join(app.getPath("userData"), "replay_data"), time_hold)}/${_end_timed}.trem`, (err) => {
-							if (err) {
-								if (document.getElementById("report-replay-downloader-icon")) document.getElementById("report-replay-downloader-icon").innerText = "download";
-
-								if (document.getElementById("report-replay-downloader-text")) document.getElementById("report-replay-downloader-text").innerText = "下載中...";
-								report.download = false;
-								this.cache.set(report.id, report);
-							}
-						});
-					} else {
-						if (document.getElementById("report-replay-downloader-icon")) document.getElementById("report-replay-downloader-icon").innerText = "download";
-
-						if (document.getElementById("report-replay-downloader-text")) document.getElementById("report-replay-downloader-text").innerText = "下載";
-						report.download = false;
-						this.cache.set(report.id, report);
-					}
-				});
+				this._updateDownloadButton(report);
 
 				if (report.loc.startsWith("地震資訊")) {
 					document.getElementById("report-cwb").style.display = "none";

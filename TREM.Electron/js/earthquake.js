@@ -12,6 +12,7 @@ const { SSEStream } = require("../js/sse.js");
 const { apiFetch, startProbing, setLogger: setEndpointLogger } = require("../js/endpoints.js");
 const { realNow, adoptServerTime, startClock } = require("../js/clock.js");
 const { sendWebhook, refreshWebhookImage, hasWebhookMessage } = require("../js/webhook.js");
+const ReplayData = require("../js/replay_data.js");
 const route = new Route();
 
 // 版本不會變，先記下來；不然每 0.5 秒都要同步問一次主程式
@@ -1296,10 +1297,15 @@ function PGAMain() {
 				const ReplayTimed = replayTemp += 1000;
 				const ReplayTimeD = ReplayTimed - 1000;
 				const gettime = ReplayTimeD / 1000;
-				const userJSON = JSON.parse(fs.readFileSync(`${path.join(path.join(app.getPath("userData"), "replay_data"), String(replaydir))}/${gettime}.trem`).toString());
+				const userJSON = ReplayData.readSecond(replaydir, gettime);
+
+				// 沒有這一秒的資料（伺服器缺資料或已超過下載範圍）就略過
+				if (!userJSON) return;
+
 				const ans_eew = Array.isArray(userJSON.eew) ? { eew: userJSON.eew } : userJSON.eew;
 				Ping = "🔁 cache";
-				handler(toRtsV2(userJSON.rts));
+
+				if (userJSON.rts) handler(toRtsV2(userJSON.rts));
 
 				for (let i = 0; i < ans_eew.eew.length; i++) {
 					console.debug(ans_eew.eew[i]);
@@ -1478,10 +1484,15 @@ function PGAMainbkup() {
 				const ReplayTimed = replayTemp += 1000;
 				const ReplayTimeD = ReplayTimed - 1000;
 				const gettime = ReplayTimeD / 1000;
-				const userJSON = JSON.parse(fs.readFileSync(`${path.join(path.join(app.getPath("userData"), "replay_data"), String(replaydir))}/${gettime}.trem`).toString());
+				const userJSON = ReplayData.readSecond(replaydir, gettime);
+
+				// 沒有這一秒的資料（伺服器缺資料或已超過下載範圍）就略過
+				if (!userJSON) return;
+
 				const ans_eew = Array.isArray(userJSON.eew) ? { eew: userJSON.eew } : userJSON.eew;
 				Ping = "🔁 cache";
-				handler(toRtsV2(userJSON.rts));
+
+				if (userJSON.rts) handler(toRtsV2(userJSON.rts));
 
 				for (let i = 0; i < ans_eew.eew.length; i++) {
 					console.debug(ans_eew.eew[i]);
@@ -3044,18 +3055,6 @@ function addReport(report, prepend = false, index = 0, palert = false) {
 		roll.prepend(Div);
 		investigation = true;
 	} else {
-		const timed = OriginTime - 5000;
-		const timed_hold = String(timed);
-		fs.access(`${path.join(path.join(app.getPath("userData"), "replay_data"), timed_hold)}/${timed / 1000}.trem`, (err) => {
-			if (!err) {
-				report.download = true;
-				TREM.Report.cache.set(report.id, report);
-			} else {
-				report.download = false;
-				TREM.Report.cache.set(report.id, report);
-			}
-		});
-
 		const report_container = document.createElement("div");
 		report_container.className = "report-container";
 
