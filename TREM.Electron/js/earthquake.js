@@ -14,6 +14,12 @@ const { realNow, adoptServerTime, startClock } = require("../js/clock.js");
 const { sendWebhook, refreshWebhookImage, hasWebhookMessage } = require("../js/webhook.js");
 const route = new Route();
 
+// 版本不會變，先記下來；不然每 0.5 秒都要同步問一次主程式
+const APP_VERSION = app.getVersion();
+
+// 告訴主程式畫面還活著；太久沒回報時主程式會重新載入，避免卡住時收不到警報
+setInterval(() => ipcRenderer.send("renderer:heartbeat"), 5_000);
+
 const JSZip = require("jszip");
 
 TREM.Audios = {
@@ -519,7 +525,7 @@ TREM.MapArea2 = {
 		if (this.timer)
 			this.timer.refresh();
 		else
-			this.timer = setTimeout(this.clear, 10_000);
+			this.timer = setTimeout(() => this.clear(), 10_000);
 	},
 	clear(id) {
 		if (id) {
@@ -801,7 +807,7 @@ async function init() {
 				// const unlock = (Unlock) ? "⚡" : "";
 				$("#log").text(`${stationnow}/${stationnowall} | ${stationPercentage}% | ${rss}`);
 				$("#log1").text(`${stationnow}/${stationnowall} | ${stationPercentage}% | ${rss}`);
-				const statusLine = `${app.getVersion()} by 小蔡 ${Ping} ${GetDataState} ${Warn}`;
+				const statusLine = `${APP_VERSION} by 小蔡 ${Ping} ${GetDataState} ${Warn}`;
 
 				ipcRenderer.send("TREMIntensitylog2", { time: now_format(NOW()), log: `${stationnow}/${stationnowall} | ${stationPercentage}% | ${rss}`, ver: statusLine });
 				$("#app-version").text(statusLine);
@@ -3814,11 +3820,13 @@ function fetch_ntp() {
 
 const stopReplay = function() {
 	// 只有重播中才結束速報與檢知框；一般回到主畫面時不能把即時的速報一起結束
-	const replaying = replay != 0 || replayTemp != 0 || replayT != 0 || replaydir != 0 || replayD || replayF;
+	const replaying = replay != 0 || replayTemp != 0 || replayT != 0 || replaydir != 0 || replayD || replayF || replaytestEEW != 0;
 
 	if (replaying && Object.keys(EarthquakeList).length != 0) Cancel = true;
 
 	if (replaying && Object.keys(detected_list).length != 0) PGACancel = true;
+
+	replaytestEEW = 0;
 
 	if (replay != 0 || Report != 0 || replayTemp != 0 || replayT != 0 || replaydir != 0 || replayD || replayF) {
 		intensitytag = -1;
@@ -4618,6 +4626,7 @@ ipcRenderer.on("Olddatabase_eew", (event, json) => {
 										: (json.type == "trem-eew" && json.number <= 3) ? "NSSPE(無震源參數推算)"
 											: (json.Unit) ? json.Unit : "";
 
+	replaytestEEW = NOW().getTime();
 	stopReplaybtn();
 	TREM.Earthquake.emit("eew", json);
 });
@@ -4636,6 +4645,7 @@ ipcRenderer.on("test_eew", (event, json) => {
 									: (json.author == "trem" && json.serial <= 3) ? "NSSPE(無震源參數推算)"
 										: (json.Unit) ? json.Unit : "";
 
+	replaytestEEW = NOW().getTime();
 	stopReplaybtn();
 	TREM.Earthquake.emit("eew", json);
 });
@@ -5894,7 +5904,11 @@ function main(data) {
 		if (NOW().getTime() - Canceltime > 300_000) Cancel = true;
 	}
 
-	if (NOW().getTime() - data.timestamp > 300_000 || Cancel) {
+	// 所在地 S 波抵達 30 秒後結束；沒有深度（推算不出抵達時間）時，最後一報後 5 分鐘結束
+	const sTime = INFO.find((v) => v.ID == data.id)?.alert_sTime;
+	const sPassed = sTime != null && NOW().getTime() - sTime > 30_000;
+
+	if (NOW().getTime() - data.timestamp > 300_000 || sPassed || Cancel) {
 		TREM.Earthquake.emit("eewEnd", data.id, data.type);
 		// TREM.MapIntensity.clear();
 
@@ -5940,6 +5954,7 @@ function main(data) {
 			eew = {};
 			EEWAlert = false;
 			// hide eew alert
+			clearInterval(Timers.ticker);
 			Timers.ticker = null;
 			Cancel = false;
 			Canceltime = 0;

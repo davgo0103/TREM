@@ -4,10 +4,14 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 // 第一次啟動時這些資料夾還不存在（例如剛裝好的 macOS），要先建立才能寫入
-fs.mkdirSync(app.getPath("logs"), { recursive: true });
-fs.mkdirSync(path.join(app.getPath("userData"), "EEW"), { recursive: true });
+// 路徑不會變，先記下來；每寫一行都同步問主程式的話，主程式忙時畫面也會跟著卡
+const LOGS_DIR = app.getPath("logs");
+const EEW_DIR = path.join(app.getPath("userData"), "EEW");
 
-const latestLog = path.join(app.getPath("logs"), "latest.log");
+fs.mkdirSync(LOGS_DIR, { recursive: true });
+fs.mkdirSync(EEW_DIR, { recursive: true });
+
+const latestLog = path.join(LOGS_DIR, "latest.log");
 fs.writeFileSync(latestLog, "", { encoding: "utf8", flag: "w" });
 
 function log_time_string() {
@@ -61,13 +65,13 @@ function time_to_string(date) {
 }
 
 function removelog() {
-	const list = fs.readdirSync(app.getPath("logs"));
+	const list = fs.readdirSync(LOGS_DIR);
 	let remove_logs = 0;
 
 	for (let i = 0; i < list.length; i++)
 		// 每個視窗都會執行清理，檔案可能已被其他視窗刪除
 		try {
-			const file = path.join(app.getPath("logs"), list[i]);
+			const file = path.join(LOGS_DIR, list[i]);
 
 			if (Date.now() - fs.statSync(file).ctimeMs > 86400 * 1000 * 7) {
 				fs.rmSync(file, { force: true });
@@ -81,7 +85,7 @@ function removelog() {
 }
 
 function removeEEW() {
-	const list = fs.readdirSync(path.join(app.getPath("userData"), "EEW"));
+	const list = fs.readdirSync(EEW_DIR);
 	let remove_EEW = 0;
 
 	for (let i = 0; i < list.length; i++)
@@ -99,7 +103,7 @@ function removeEEW() {
 	log(`remove: ${remove_EEW} EEW`, 1, "dump", "removeEEW");
 }
 
-const LogPath = () => path.join(app.getPath("logs"), `${log_time_string()}.log`);
+const LogPath = () => path.join(LOGS_DIR, `${log_time_string()}.log`);
 
 if (!fs.existsSync(LogPath())) {
 	fs.writeFileSync(LogPath(), "");

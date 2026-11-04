@@ -119,6 +119,8 @@ class SSEStream {
 
 			conn.closed = true;
 			clearTimeout(stale);
+			// 中止這次請求，沒讀完的回應才會釋放
+			controller.abort();
 			report(balancedUrl, false);
 			this.log(`${this.label} ${why}`, 3);
 

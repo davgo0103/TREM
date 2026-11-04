@@ -106,14 +106,21 @@ function retryAfterMs(res) {
 	return Number.isFinite(ms) ? Math.min(Math.max(ms, 0), RETRY_AFTER_CAP_MS) : null;
 }
 
+// 這些狀態碼不能帶內容（fetch 拿不到 1xx）
+const hasNoBody = (status) => status === 204 || status === 205 || status === 304;
+
 async function fetchOnce(url, offset, timeout, options) {
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), timeout);
 
 	try {
 		const res = await fetch(resolve(url, offset), { cache: "no-cache", ...options, signal: controller.signal });
+
+		// 內容也要在逾時內讀完：伺服器傳到一半停住時，不然呼叫端的 res.text() 會永遠等下去，連線也一直被佔著
+		const body = hasNoBody(res.status) ? null : await res.arrayBuffer();
 		report(url, res.status < 500);
-		return res;
+		// earthquake.js 有全域變數叫 Response，要明確用瀏覽器內建的
+		return new window.Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
 	} catch (err) {
 		report(url, false);
 		throw err;
@@ -165,7 +172,11 @@ async function probeNode(node, path) {
 
 	try {
 		const res = await fetch(`https://${node}${path}`, { cache: "no-store", signal: controller.signal });
-		return res.ok ? performance.now() - t : Infinity;
+		const ms = performance.now() - t;
+
+		// 只看回應速度，內容不要；沒讀的內容會佔著連線和記憶體，直到被回收
+		res.body?.cancel().catch(() => void 0);
+		return res.ok ? ms : Infinity;
 	} catch {
 		return Infinity;
 	} finally {

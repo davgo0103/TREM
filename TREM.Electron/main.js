@@ -24,8 +24,7 @@ TREM.commandLine.appendSwitch("disable-http2");
 // 縮到系統匣或被遮住時也要即時處理速報：關閉 Chromium 的背景降速與計時器節流（參考 TREM-Lite）
 TREM.commandLine.appendSwitch("disable-renderer-backgrounding");
 TREM.commandLine.appendSwitch("disable-background-timer-throttling");
-TREM.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
-autoUpdater.requestHeaders = { "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" };
+TREM.commandLine.appendSwitch("disable-backgrounding-occluded-windows");autoUpdater.requestHeaders = { "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" };
 
 /**
  * @type {Tray}
@@ -439,9 +438,54 @@ TREM.on("before-quit", () => {
 		tray.destroy();
 });
 
+// 畫面程序結束（當掉、記憶體不足、被系統結束……）都重新載入，不然會停在白畫面
 TREM.on("render-process-gone", (e, w, d) => {
-	if (d.reason == "crashed")
+	logger.error(`render-process-gone: ${d.reason} (exit code ${d.exitCode}) ${w.getURL()}`);
+
+	if (d.reason != "clean-exit" && !w.isDestroyed())
 		w.reload();
+});
+
+// 主畫面看門狗：主畫面每 5 秒回報一次，超過 60 秒沒回報就視為卡住，強制結束畫面程序（再由上面重新載入）
+const HEARTBEAT_TIMEOUT_MS = 60_000;
+let lastHeartbeat = Date.now();
+let lastMemoryLog = 0;
+
+ipcMain.on("renderer:heartbeat", (event) => {
+	if (event.sender == MainWindow?.webContents) lastHeartbeat = Date.now();
+});
+
+TREM.whenReady().then(() => {
+	const { powerMonitor } = require("electron");
+
+	// 睡眠期間不會回報，醒來後重新計時
+	powerMonitor.on("resume", () => lastHeartbeat = Date.now());
+
+	setInterval(() => {
+		if (!(MainWindow instanceof BrowserWindow) || MainWindow.isDestroyed()) return;
+
+		const contents = MainWindow.webContents;
+
+		// 每小時記一次主畫面的記憶體用量，之後若又卡住可以看出是不是越用越多
+		if (Date.now() - lastMemoryLog > 3_600_000) {
+			lastMemoryLog = Date.now();
+			const metric = TREM.getAppMetrics().find((m) => m.pid == contents.getOSProcessId());
+
+			if (metric) logger.info(`main renderer memory: ${Math.round(metric.memory.workingSetSize / 1024)} MB`);
+		}
+
+		// 載入中或開著開發者工具（可能停在中斷點）時不判斷
+		if (contents.isLoading() || contents.isDevToolsOpened()) {
+			lastHeartbeat = Date.now();
+			return;
+		}
+
+		if (Date.now() - lastHeartbeat > HEARTBEAT_TIMEOUT_MS) {
+			logger.error(`main renderer not responding for ${Math.round((Date.now() - lastHeartbeat) / 1000)}s, reloading`);
+			lastHeartbeat = Date.now();
+			contents.forcefullyCrashRenderer();
+		}
+	}, 10_000);
 });
 
 ipcMain.on("toggleFullscreen", () => {
