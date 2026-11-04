@@ -80,8 +80,21 @@
     padding-left: 20px;
 }
 
+/* 主畫面是相容模式，表格不會自己繼承文字顏色與字級 */
 .dialog .release-notes table {
     border-collapse: collapse;
+    color: inherit;
+    font-size: inherit;
+    line-height: inherit;
+}
+
+.dialog .release-notes th {
+    color: rgb(var(--md-sys-color-on-surface));
+}
+
+.dialog .release-notes code {
+    color: inherit;
+    font-size: 13px;
 }
 
 .dialog .release-notes th,
