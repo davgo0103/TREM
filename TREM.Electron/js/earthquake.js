@@ -4205,7 +4205,7 @@ ipcRenderer.on("update-available-Notification", (event, version, getVersion, inf
 			});
 		}
 
-	showDialog("success", `有可用的${info?.releaseName ?? version}版本更新`, String(info?.releaseNotes ?? "").replace("<p>", "").replaceAll("<br>", "").replace("</p>", ""),
+	showDialog("success", `有可用的${info?.releaseName ?? version}版本更新`, `<div class="release-notes">${info?.releaseNotes ?? ""}</div>`,
 		1, "update", () => {
 			openURL(`https://github.com/davgo0103/TREM/releases/tag/v${version}`);
 		}, "前往更新", "暫緩更新", () => void 0, 60);

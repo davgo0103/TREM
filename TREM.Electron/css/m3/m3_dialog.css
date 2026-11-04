@@ -21,6 +21,9 @@
     background: rgba(var(--md-sys-color-surface), 90%);
     padding: 24px;
     border-radius: 28px;
+    box-sizing: border-box;
+    max-width: calc(100vw - 64px);
+    max-height: calc(100vh - 64px);
 }
 
 .dialog .dialog-icon {
@@ -51,4 +54,43 @@
     font-family: inherit;
     margin-bottom: 24px;
     white-space: pre-line;
+    min-height: 0;
+    overflow-y: auto;
+    user-select: text;
+}
+
+/* 更新說明是 GitHub 轉好的 HTML，照一般網頁排版 */
+.dialog .dialog-supportText .release-notes {
+    white-space: normal;
+    text-align: left;
+}
+
+.dialog .release-notes h2 {
+    color: rgb(var(--md-sys-color-on-surface));
+    font-size: 16px;
+    margin: 16px 0 8px;
+}
+
+.dialog .release-notes p,
+.dialog .release-notes ul {
+    margin: 4px 0;
+}
+
+.dialog .release-notes ul {
+    padding-left: 20px;
+}
+
+.dialog .release-notes table {
+    border-collapse: collapse;
+}
+
+.dialog .release-notes th,
+.dialog .release-notes td {
+    padding: 2px 12px 2px 0;
+    text-align: left;
+}
+
+.dialog .release-notes pre {
+    margin: 4px 0;
+    white-space: pre-wrap;
 }
