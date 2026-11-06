@@ -68,6 +68,13 @@ const closeDialog = event => {
 			return;
 
 	if (showDialog_run) showDialog_run = false;
+
+	// 對話框關了，倒數計時就不需要了；不歸零的話 earthquake.js 的 main() 每個 tick 都會以為還有對話框要關
+	if (showDialogtime) {
+		clearTimeout(showDialogtime);
+		showDialogtime = null;
+	}
+
 	lockScroll(false);
 	$("#modal-overlay").fadeOut({ duration: 100, complete: () => container.replaceChildren() }).delay(100).show();
 };

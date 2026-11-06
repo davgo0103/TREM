@@ -12,7 +12,52 @@ fs.mkdirSync(LOGS_DIR, { recursive: true });
 fs.mkdirSync(EEW_DIR, { recursive: true });
 
 const latestLog = path.join(LOGS_DIR, "latest.log");
-fs.writeFileSync(latestLog, "", { encoding: "utf8", flag: "w" });
+
+// latest.log 記錄這次執行的主畫面；只有主畫面載入時清空，開設定、震度等其他視窗不能把它洗掉
+if (location.pathname.endsWith("/MainView.html"))
+	fs.writeFileSync(latestLog, "", { encoding: "utf8", flag: "w" });
+
+// 寫檔先排隊，等這段程式跑完再一次寫出：速報流程上會連續記好幾行，
+// 每行都同步寫檔的話（Windows 防毒掃描時每次可達數 ms）會延後畫面與音效
+// 錯誤與視窗關閉前直接同步寫出，當掉或卡住時才不會少掉最後幾行
+const pending = new Map();
+let flushTimer = null;
+let writing = Promise.resolve();
+
+function queueWrite(file, text, now = false) {
+	pending.set(file, (pending.get(file) ?? "") + text);
+
+	if (now) return flushSync();
+
+	flushTimer ??= setTimeout(flush, 0);
+}
+
+function takePending() {
+	clearTimeout(flushTimer);
+	flushTimer = null;
+
+	const batch = [...pending];
+	pending.clear();
+	return batch;
+}
+
+function flush() {
+	const batch = takePending();
+
+	// 串起來依序寫，避免兩批同時寫同一個檔案時順序錯亂
+	writing = writing.then(() => Promise.all(batch.map(([file, text]) => fs.promises.appendFile(file, text, "utf8")))).catch(() => void 0);
+}
+
+function flushSync() {
+	for (const [file, text] of takePending())
+		try {
+			fs.appendFileSync(file, text, "utf8");
+		} catch {
+			// 寫不進去也不能讓呼叫端出錯
+		}
+}
+
+window.addEventListener("beforeunload", flushSync);
 
 function log_time_string() {
 	const now = new Date();
@@ -90,7 +135,7 @@ function removeEEW() {
 
 	for (let i = 0; i < list.length; i++)
 		try {
-			const file = path.join(app.getPath("userData"), "EEW", list[i]);
+			const file = path.join(EEW_DIR, list[i]);
 
 			if (Date.now() - fs.statSync(file).ctimeMs > 86400 * 1000 * 7) {
 				fs.rmSync(file, { force: true });
@@ -127,7 +172,7 @@ function log(msg, type = 1, sender = "main", fun = "unknow") {
 		console.log("\x1b[31m" + _msg + "\x1b[0m");
 	}
 
-	fs.appendFileSync(LogPath(), `${_msg}\r\n`, "utf8");
+	queueWrite(LogPath(), `${_msg}\r\n`, type == 3);
 }
 
 removelog();
@@ -157,10 +202,10 @@ function dump(dumpData) {
 	][dumpData.level]](`%c[${nowTime}]`, dumpData.level == 0 ? "color: rgba(255, 255, 255, .4)" : "", dumpData.origin + " >> " + dumpData.message);
 
 	if (dumpData.level != 3)
-		fs.appendFileSync(latestLog, `[${[
+		queueWrite(latestLog, `[${[
 			"Log",
 			"Warn",
 			"Error",
 			"Debug",
-		][dumpData.level]}] [${nowTime}] [${dumpData.origin}]` + dumpData.message + "\r\n", "utf8");
+		][dumpData.level]}] [${nowTime}] [${dumpData.origin}]` + dumpData.message + "\r\n", dumpData.level == 2);
 }

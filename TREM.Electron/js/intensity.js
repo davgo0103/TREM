@@ -1,6 +1,7 @@
 require("leaflet");
 require("leaflet-edgebuffer");
 require("leaflet-geojson-vt");
+const vtLayer = require("../js/vt_layer.js");
 const { BrowserWindow } = require("@electron/remote");
 const Route = require("../js/route.js");
 const route = new Route();
@@ -112,7 +113,7 @@ async function init() {
 	try {
 		if (setting["intensity.cwa"] != "") {
 			const json_cwb = require(path.resolve(folder, `${setting["intensity.cwa"]}.json`));
-			ipcRenderer.send("TREMIntensityload", json_cwb);
+			loadIntensity(json_cwb, { silent: true });
 		}
 	} catch (err) {
 		log(`解析檔案 ${setting["intensity.cwa"]}.json 時發生錯誤:`, 3, "init", "intensity");
@@ -122,7 +123,7 @@ async function init() {
 	try {
 		if (setting["intensity.trem"] != "") {
 			const json_trem = require(path.resolve(folder, `${setting["intensity.trem"]}.json`));
-			ipcRenderer.send("TREMIntensityload", json_trem);
+			loadIntensity(json_trem, { silent: true });
 		}
 	} catch (err) {
 		log(`解析檔案 ${setting["intensity.trem"]}.json 時發生錯誤:`, 3, "init", "intensity");
@@ -133,7 +134,6 @@ async function init() {
 TREM.Intensity = {
 	isTriggered : false,
 	alertTime   : 0,
-	intensities : new Map(),
 	geojson     : null,
 	cwa         : {},
 	palert      : {},
@@ -194,8 +194,6 @@ TREM.Intensity = {
 				TREM.Intensity.palert = rawIntensityData;
 			else if (unit == "trem")
 				TREM.Intensity.trem = rawIntensityData;
-
-			if (this._raw != null) this.clear();
 
 			if (unit == "cwa") unit = "CWA";
 
@@ -269,7 +267,7 @@ TREM.Intensity = {
 
 				document.getElementById("intensity-overview-number").innerText = raw.serial ?? "1";
 
-				this.geojson = L.geoJson.vt(MapData.tw_town, {
+				this.geojson = vtLayer(MapData.tw_town, {
 					minZoom   : 7.5,
 					maxZoom   : 10,
 					tolerance : 20,
@@ -353,14 +351,18 @@ TREM.Intensity = {
 			if (this.timer) {
 				clearTimeout(this.timer);
 				delete this.timer;
-				this.timer = setTimeout(() => this.clear(), 60_000);
+				this.timer = setTimeout(() => this.reset(), 60_000);
 			} else {
-				this.timer = setTimeout(() => this.clear(), 60_000);
+				this.timer = setTimeout(() => this.reset(), 60_000);
 			}
 		}
 	},
 
-	load(rawIntensityData) {
+	/**
+	 * @param {object} rawIntensityData
+	 * @param {{ silent?: boolean }} [options] silent：只載入資料（例如啟動時載入上次的震度），不自動開窗、不播音效
+	 */
+	load(rawIntensityData, { silent = false } = {}) {
 		log(JSON.stringify(rawIntensityData, null, 2), 0, "load", "intensity");
 
 		if (rawIntensityData.raw != undefined) {
@@ -391,8 +393,6 @@ TREM.Intensity = {
 				log("修正後的經緯度", 0, "load", "intensity");
 				log(raw_info_Data, 0, "load", "intensity");
 			}
-
-			if (this._raw != null) this.clear();
 
 			if (unit == "cwb") unit = "CWA";
 
@@ -455,7 +455,7 @@ TREM.Intensity = {
 						zIndexOffset: 5000,
 					}).addTo(Maps.intensity);
 
-				this.geojson = L.geoJson.vt(MapData.tw_town, {
+				this.geojson = vtLayer(MapData.tw_town, {
 					minZoom   : 7.5,
 					maxZoom   : 10,
 					tolerance : 20,
@@ -514,9 +514,9 @@ TREM.Intensity = {
 			if (this.timer) {
 				clearTimeout(this.timer);
 				delete this.timer;
-				this.timer = setTimeout(() => this.clear(), 60_000);
+				this.timer = setTimeout(() => this.reset(), 60_000);
 			} else {
-				this.timer = setTimeout(() => this.clear(), 60_000);
+				this.timer = setTimeout(() => this.reset(), 60_000);
 			}
 		} else if (rawIntensityData != undefined) {
 			const raw = rawIntensityData;
@@ -547,8 +547,6 @@ TREM.Intensity = {
 				TREM.Intensity.palert = rawIntensityData;
 			else if (unit == "trem")
 				TREM.Intensity.trem = rawIntensityData;
-
-			if (this._raw != null) this.clear();
 
 			if (unit == "cwa") unit = "CWA";
 
@@ -622,7 +620,7 @@ TREM.Intensity = {
 
 				document.getElementById("intensity-overview-number").innerText = raw.serial ?? "1";
 
-				this.geojson = L.geoJson.vt(MapData.tw_town, {
+				this.geojson = vtLayer(MapData.tw_town, {
 					minZoom   : 7.5,
 					maxZoom   : 10,
 					tolerance : 20,
@@ -689,7 +687,7 @@ TREM.Intensity = {
 				document.getElementById("intensity-overview-number").innerText = raw.serial ?? "1";
 			}
 
-			if (!this.isTriggered) {
+			if (!this.isTriggered && !silent) {
 				this.isTriggered = true;
 
 				if (setting["intensity.show"]) {
@@ -706,9 +704,9 @@ TREM.Intensity = {
 			if (this.timer) {
 				clearTimeout(this.timer);
 				delete this.timer;
-				this.timer = setTimeout(() => this.clear(), 60_000);
+				this.timer = setTimeout(() => this.reset(), 60_000);
 			} else {
-				this.timer = setTimeout(() => this.clear(), 60_000);
+				this.timer = setTimeout(() => this.reset(), 60_000);
 			}
 		}
 	},
@@ -774,25 +772,24 @@ TREM.Intensity = {
 		});
 	},
 
-	clear() {
-		log("Clearing Intensity map", 1, "Intensity", "clear");
+	/**
+	 * 最後一筆震度資料 60 秒後結束這次事件：收起概況、地圖回到全台，下次有震度資料時才會再自動開窗與播音效
+	 * （之前判斷的 intensities 從來沒有放東西，這段永遠不會執行，第一次觸發後就不會再自動開窗）
+	 */
+	reset() {
+		log("Clearing Intensity map", 1, "Intensity", "reset");
 		dump({ level: 0, message: "Clearing Intensity map", origin: "Intensity" });
 
-		if (this.intensities.size) {
-			document.getElementById("intensity-overview").style.visibility = "none";
-			document.getElementById("intensity-overview").classList.remove("show");
-			delete this.intensities;
-			this.intensities = new Map();
-			this.alertTime = 0;
-			this.isTriggered = false;
-			this._raw = null;
-			this._lastFocus = [];
-			this._focusMap();
+		document.getElementById("intensity-overview").classList.remove("show");
+		this.alertTime = 0;
+		this.isTriggered = false;
+		this._raw = null;
+		this._lastFocus = [];
+		this._focusMap();
 
-			if (this.timer) {
-				clearTimeout(this.timer);
-				delete this.timer;
-			}
+		if (this.timer) {
+			clearTimeout(this.timer);
+			delete this.timer;
 		}
 	},
 
@@ -991,15 +988,10 @@ TREM.Old_database = {
 };
 
 ipcRenderer.on("TREMIntensityhandle", (event, json) => {
-	if (TREM.Intensity.isTriggered)
-		TREM.Intensity.clear();
 	TREM.Intensity.handle(json);
 });
 
-ipcRenderer.on("TREMIntensityload", (event, json) => {
-	if (TREM.Intensity.isTriggered)
-		TREM.Intensity.clear();
-
+function loadIntensity(json, options) {
 	const unit = json.unit;
 
 	if (unit == "cwb")
@@ -1009,8 +1001,10 @@ ipcRenderer.on("TREMIntensityload", (event, json) => {
 	else if (unit == "trem")
 		TREM.Intensity.trem = json;
 
-	TREM.Intensity.load(json);
-});
+	TREM.Intensity.load(json, options);
+}
+
+ipcRenderer.on("TREMIntensityload", (event, json) => loadIntensity(json));
 
 ipcRenderer.on("TREMIntensitylog2", (event, log) => {
 	const time2 = document.getElementById("time2");

@@ -3,6 +3,7 @@
 require("leaflet");
 require("leaflet-edgebuffer");
 require("leaflet-geojson-vt");
+const vtLayer = require("../js/vt_layer.js");
 require("expose-gc");
 const { BrowserWindow, shell } = require("@electron/remote");
 const { setTimeout, setInterval, clearTimeout, clearInterval } = require("node:timers");
@@ -235,7 +236,7 @@ TREM.MapIntensity = {
 		if (palert_geojson != null)
 			palert_geojson.remove();
 
-		palert_geojson = L.geoJson.vt(MapData.tw_town, {
+		palert_geojson = vtLayer(MapData.tw_town, {
 			minZoom   : 4,
 			maxZoom   : 15,
 			tolerance : 20,
@@ -317,7 +318,7 @@ TREM.PWS = {
 						permanent : false,
 						className : "marker-popup pws-popup",
 					});
-				pws.areav2[areaconst] = L.geoJson.vt(MapData.tw_town, {
+				pws.areav2[areaconst] = vtLayer(MapData.tw_town, {
 					minZoom   : 4,
 					maxZoom   : 15,
 					tolerance : 20,
@@ -492,7 +493,7 @@ TREM.MapArea2 = {
 			this.PLoc = PLoc;
 			const old = areav2_geojson;
 
-			areav2_geojson = L.geoJson.vt(MapData.tw_town, {
+			areav2_geojson = vtLayer(MapData.tw_town, {
 				minZoom   : 4,
 				maxZoom   : 15,
 				tolerance : 20,
@@ -1894,7 +1895,7 @@ function handler(Json) {
 					log("Playing Audio > pga1", 1, "Audio", "handler");
 					dump({ level: 0, message: "Playing Audio > pga1", origin: "Audio" });
 					TREM.Audios.pga1.play();
-				} else if (amount > 250 && PGALimit > 1) {
+				} else if (amount > 250 && PGALimit == 1) {
 					PGALimit = 2;
 					log("Playing Audio > pga2", 1, "Audio", "handler");
 					dump({ level: 0, message: "Playing Audio > pga2", origin: "Audio" });
@@ -2500,7 +2501,8 @@ TREM.Earthquake.on("focus", ({ center, zoom } = {}) => {
 		Focus[1] = center[1] + X;
 		Focus[2] = zoom;
 
-		if (Maps.main.getBounds().getCenter().lat.toFixed(2) != center[0].toFixed(2) || Maps.main.getBounds().getCenter().lng.toFixed(2) != (center[1] + X).toFixed(2) || zoom != Maps.main.getZoom())
+		// 要跟實際 setView 的中心比；之前比的是加了 X 的經度，永遠不相等，每 0.5 秒就整張地圖重畫一次
+		if (Maps.main.getCenter().lat.toFixed(2) != center[0].toFixed(2) || Maps.main.getCenter().lng.toFixed(2) != center[1].toFixed(2) || zoom != Maps.main.getZoom())
 			Maps.main.setView([center[0], center[1]], zoom);
 	} else if (Focus.length != 0) {
 		if (Maps.main.getBounds().getCenter().lat.toFixed(2) != Focus[0].toFixed(2) || Maps.main.getBounds().getCenter().lng.toFixed(2) != Focus[1].toFixed(2) || Focus[2] != Maps.main.getZoom())
@@ -2515,87 +2517,48 @@ function Mapsmainfocus() {
 // #endregion
 
 // #region 音頻播放
-let AudioT;
-let AudioT1;
-const audioDOM = new Audio();
-const audioDOM1 = new Audio();
-audioDOM.addEventListener("ended", () => {
-	audio.main_lock = false;
-});
-audioDOM1.addEventListener("ended", () => {
-	audio.minor_lock = false;
-});
+/**
+ * 依序播放的音效佇列：一段播完（或播放失敗、被略過）才播下一段
+ * 之前用 0 ms 的 setInterval 輪詢鎖，播放期間每秒空轉幾百次；play() 失敗時鎖也不會解開，整個佇列卡到下一報
+ * audio[lockKey] 為 true 表示正在播（速報倒數用它判斷要不要排下一個數字）
+ */
+function createAudioQueue(queueKey, lockKey, label, playbackRate = 1) {
+	const dom = new Audio();
 
-function audioPlay(src) {
-	audio.main.push(src);
+	const next = () => {
+		const src = audio[queueKey].shift();
 
-	if (!AudioT)
-		AudioT = setInterval(() => {
-			if (!audio.main_lock) {
-				audio.main_lock = true;
+		if (src == undefined) {
+			audio[lockKey] = false;
+			return;
+		}
 
-				if (audio.main.length) {
-					playNextAudio();
-				} else {
-					clearInterval(AudioT);
-					audio.main_lock = false;
-					AudioT = null;
-				}
-			}
-		}, 0);
+		audio[lockKey] = true;
+
+		// audio/1/ 是速報語音，關掉速報音效時略過
+		if (src.startsWith("../audio/1/") && !setting["audio.eew"]) return next();
+
+		log(`Playing ${label} > ${src}`, 1, "Audio", "audioQueue");
+		dump({ level: 0, message: `Playing ${label} > ${src}`, origin: "Audio" });
+		dom.src = src;
+		dom.playbackRate = playbackRate;
+		dom.play().catch((err) => {
+			log(`${label} failed > ${src}: ${err}`, 2, "Audio", "audioQueue");
+			next();
+		});
+	};
+
+	dom.addEventListener("ended", next);
+
+	return (src) => {
+		audio[queueKey].push(src);
+
+		if (!audio[lockKey]) next();
+	};
 }
 
-function audioPlay1(src) {
-	audio.minor.push(src);
-
-	if (!AudioT1)
-		AudioT1 = setInterval(() => {
-			if (!audio.minor_lock) {
-				audio.minor_lock = true;
-
-				if (audio.minor.length) {
-					playNextAudio1();
-				} else {
-					clearInterval(AudioT1);
-					audio.minor_lock = false;
-					AudioT1 = null;
-				}
-			}
-		}, 0);
-}
-
-function playNextAudio() {
-	audio.main_lock = true;
-	const nextAudioPath = audio.main.shift();
-	audioDOM.src = nextAudioPath;
-
-	if (nextAudioPath.startsWith("../audio/1/") && setting["audio.eew"]) {
-		log(`Playing Audio > ${nextAudioPath}`, 1, "Audio", "playNextAudio");
-		dump({ level: 0, message: `Playing Audio > ${nextAudioPath}`, origin: "Audio" });
-		audioDOM.play();
-	} else if (!nextAudioPath.startsWith("../audio/1/")) {
-		log(`Playing Audio > ${nextAudioPath}`, 1, "Audio", "playNextAudio");
-		dump({ level: 0, message: `Playing Audio > ${nextAudioPath}`, origin: "Audio" });
-		audioDOM.play();
-	}
-}
-
-function playNextAudio1() {
-	audio.minor_lock = true;
-	const nextAudioPath = audio.minor.shift();
-	audioDOM1.src = nextAudioPath;
-	audioDOM1.playbackRate = 1.1;
-
-	if (nextAudioPath.startsWith("../audio/1/") && setting["audio.eew"]) {
-		log(`Playing Audio 1 > ${nextAudioPath}`, 1, "Audio", "playNextAudio1");
-		dump({ level: 0, message: `Playing Audio 1 > ${nextAudioPath}`, origin: "Audio" });
-		audioDOM1.play();
-	} else if (!nextAudioPath.startsWith("../audio/1/")) {
-		log(`Playing Audio 1 > ${nextAudioPath}`, 1, "Audio", "playNextAudio1");
-		dump({ level: 0, message: `Playing Audio 1 > ${nextAudioPath}`, origin: "Audio" });
-		audioDOM1.play();
-	}
-}
+const audioPlay = createAudioQueue("main", "main_lock", "Audio");
+const audioPlay1 = createAudioQueue("minor", "minor_lock", "Audio 1", 1.1);
 // #endregion
 
 // #region Report Data
@@ -4719,6 +4682,10 @@ TREM.Earthquake.on("eew", (data) => {
 
 	if ((data.type == "trem-eew" || data.author == "trem") && (data.lat == null && data.lon == null)) return;
 
+	// 已經結束的速報再重播一次時要重新建立，不然會沿用上次的取消狀態，震波圓不會動
+	if (data.replay_time && TREM.EEW.has(data.id) && !EarthquakeList[data.id])
+		TREM.EEW.delete(data.id);
+
 	if (!TREM.EEW.has(data.id))
 		TREM.EEW.set(data.id, new EEW(data));
 	else
@@ -4922,12 +4889,8 @@ TREM.Earthquake.on("eew", (data) => {
 
 	let Nmsg = "";
 
-	clearInterval(AudioT);
 	audio.main_lock = false;
-	AudioT = null;
-	clearInterval(AudioT1);
 	audio.minor_lock = false;
-	AudioT1 = null;
 	audio.main = [];
 	audio.minor = [];
 
@@ -5246,7 +5209,7 @@ TREM.Earthquake.on("eew", (data) => {
 	// 舊的一報若正顯示在小地圖上，新圖層畫好後再移除，避免閃爍
 	const oldGeojson = TREM.EEW.get(data.id)?.geojson;
 
-	TREM.EEW.get(data.id).geojson = L.geoJson.vt(MapData.tw_town, {
+	TREM.EEW.get(data.id).geojson = vtLayer(MapData.tw_town, {
 		minZoom   : 7,
 		maxZoom   : 7,
 		tolerance : 20,
@@ -5597,11 +5560,20 @@ TREM.Earthquake.on("tsunami", (data) => {
 	}
 });
 
+// 震波圓每張地圖共用一個 SVG 圖層；每個圓各建一個的話，圓移除後空的 SVG 還會留在地圖上
+const waveRenderers = new Map();
+
+function waveRendererOf(map) {
+	if (!waveRenderers.has(map)) waveRenderers.set(map, L.svg());
+	return waveRenderers.get(map);
+}
+
 function main(data) {
 	if (showDialogtime) {
 		lockScroll(false);
 		$("#modal-overlay").fadeOut(0);
 		showDialogtime.close();
+		showDialogtime = null;
 	}
 
 	if (TREM.EEW.get(INFO[TINFO]?.ID).Cancel == undefined && ((setting["trem.ps"] && (data.type == "trem-eew" || data.author == "trem")) || (data.author != "trem"))) {
@@ -5669,7 +5641,7 @@ function main(data) {
 							color     : "#6FB7B7",
 							fillColor : "transparent",
 							radius    : kmP,
-							renderer  : L.svg(),
+							renderer  : waveRendererOf(Maps.main),
 							className : "p-wave",
 						}).addTo(Maps.main);
 
@@ -5685,7 +5657,7 @@ function main(data) {
 							color     : "#6FB7B7",
 							fillColor : "transparent",
 							radius    : kmP,
-							renderer  : L.svg(),
+							renderer  : waveRendererOf(Maps.mini),
 							className : "p-wave",
 						}).addTo(Maps.mini);
 
@@ -5711,7 +5683,7 @@ function main(data) {
 						fillColor   : `url(#${data.Alert ? "alert" : "pred"}-gradient)`,
 						fillOpacity : 1,
 						radius      : km,
-						renderer    : L.svg(),
+						renderer    : waveRendererOf(Maps.main),
 						className   : "s-wave",
 					}).addTo(Maps.main);
 
@@ -5719,14 +5691,13 @@ function main(data) {
 					EarthquakeList[data.id].CircleS
 						.setLatLng([+data.lat, +data.lon]);
 
-				EarthquakeList[data.id].CircleS
-					.setRadius(km)
-					.setStyle(
-						{
-							color     : data.Alert ? "red" : "orange",
-							fillColor : `url(#${data.Alert ? "alert" : "pred"}-gradient)`,
-						},
-					);
+				EarthquakeList[data.id].CircleS.setRadius(km);
+
+				if (EarthquakeList[data.id].CircleS.options.color != (data.Alert ? "red" : "orange"))
+					EarthquakeList[data.id].CircleS.setStyle({
+						color     : data.Alert ? "red" : "orange",
+						fillColor : `url(#${data.Alert ? "alert" : "pred"}-gradient)`,
+					});
 
 				if (!EarthquakeList[data.id].CircleSTW)
 					EarthquakeList[data.id].CircleSTW = L.circle([+data.lat, +data.lon], {
@@ -5734,7 +5705,7 @@ function main(data) {
 						fillColor   : `url(#${data.Alert ? "alert" : "pred"}-gradient)`,
 						fillOpacity : 1,
 						radius      : km,
-						renderer    : L.svg(),
+						renderer    : waveRendererOf(Maps.mini),
 						className   : "s-wave",
 					}).addTo(Maps.mini);
 
@@ -5742,16 +5713,15 @@ function main(data) {
 					EarthquakeList[data.id].CircleSTW
 						.setLatLng([+data.lat, +data.lon]);
 
-				EarthquakeList[data.id].CircleSTW
-					.setRadius(km)
-					.setStyle(
-						{
-							color     : data.Alert ? "red" : "orange",
-							fillColor : `url(#${data.Alert ? "alert" : "pred"}-gradient)`,
-						},
-					);
+				EarthquakeList[data.id].CircleSTW.setRadius(km);
+
+				if (EarthquakeList[data.id].CircleSTW.options.color != (data.Alert ? "red" : "orange"))
+					EarthquakeList[data.id].CircleSTW.setStyle({
+						color     : data.Alert ? "red" : "orange",
+						fillColor : `url(#${data.Alert ? "alert" : "pred"}-gradient)`,
+					});
 			} else {
-				const num = Math.round(((NOW().getTime() - data.time) / 1000 / TREM.Resources.time[data.depth][0].S) * 100);
+				const num = Math.round(((NOW().getTime() - data.time) / 1000 / _time_table[0].S) * 100);
 				// const num = (NOW().getTime() - data.time) / 10 / EarthquakeList[data.id].distance[1].Stime;
 				const icon = L.divIcon({
 					className : "progress_bar",
@@ -5857,8 +5827,11 @@ function main(data) {
 			});
 	}
 
-	if (EarthquakeList[data.id].epicenterIcon.getElement().src != iconUrl)
-		EarthquakeList[data.id].epicenterIcon.getElement().src = iconUrl;
+	// 要比 attribute：.src 讀回來是完整的 file:// 網址，跟相對路徑永遠不相等，每個 tick 都會重新載入圖片
+	const epicenterImg = EarthquakeList[data.id].epicenterIcon.getElement();
+
+	if (epicenterImg && epicenterImg.getAttribute("src") != iconUrl)
+		epicenterImg.src = iconUrl;
 
 	EarthquakeList[data.id].epicenterIcon.setLatLng([+data.lat, +data.lon]);
 

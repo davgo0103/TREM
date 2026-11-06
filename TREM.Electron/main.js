@@ -214,7 +214,8 @@ function createRTSWindow() {
 
 function createIntensityWindow() {
 	if (IntensityWindow instanceof BrowserWindow) {
-		if (!IntensityWindow.isVisible()) IntensityWindow.reload();
+		// 視窗一直在背景載好、隱藏時也收資料，打開直接顯示；只有畫面程序掛掉時才需要重新載入
+		if (IntensityWindow.webContents.isCrashed()) IntensityWindow.reload();
 		return IntensityWindow.show();
 	}
 
@@ -619,16 +620,15 @@ ipcMain.on("openURL", (event, url) => {
 		shell.openExternal(url);
 });
 
+// 震度資料隱藏時也要送：震度視窗收到後才會依設定自動開窗（之前隱藏時不送，自動開窗從來不會發生）
 ipcMain.on("TREMIntensityhandle", (event, json) => {
-	if (IntensityWindow != null)
-		if (IntensityWindow.isVisible())
-			IntensityWindow.webContents.send("TREMIntensityhandle", json);
+	if (IntensityWindow != null && !IntensityWindow.isDestroyed())
+		IntensityWindow.webContents.send("TREMIntensityhandle", json);
 });
 
 ipcMain.on("TREMIntensityload", (event, json) => {
-	if (IntensityWindow != null)
-		if (IntensityWindow.isVisible())
-			IntensityWindow.webContents.send("TREMIntensityload", json);
+	if (IntensityWindow != null && !IntensityWindow.isDestroyed())
+		IntensityWindow.webContents.send("TREMIntensityload", json);
 });
 
 ipcMain.on("TREMIntensitylog2", (event, log) => {
@@ -842,24 +842,32 @@ ipcMain.on("config:open", () => {
 	shell.openPath(TREM.Configuration.path);
 });
 
-ipcMain.on("screenshotEEW", async (event, json) => {
-	// return;
-	const folder = path.join(TREM.getPath("userData"), "EEW");
+// 速報存檔截圖：主程序在編碼與寫檔時整個卡住，畫面程序對主程序的同步呼叫也會跟著等，
+// 所以存成 JPEG（編碼比 PNG 快數倍、檔案也小很多），並非同步寫檔
+const EEW_SHOT_QUALITY = 92;
 
-	if (!fs.existsSync(folder))
-		fs.mkdirSync(folder);
-	// const list = fs.readdirSync(folder);
-	// for (let index = 0; index < list.length; index++) {
-	// 	const date = fs.statSync(`${folder}/${list[index]}`);
-	// 	if (Date.now() - date.ctimeMs > 3600000) fs.unlinkSync(`${folder}/${list[index]}`);
-	// }
-	const filename = `${json.Function}_${json.ID}_${json.Version}_${json.Time}_${json.Shot}.png`;
-	fs.writeFileSync(path.join(folder, filename), (await MainWindow.webContents.capturePage()).toPNG());
+async function saveEEWShot(window, filename) {
+	if (!window || window.isDestroyed()) return;
 
-	if (RTSWindow && json.Function != "replay_eew") {
-		const filenameRTS = `${json.Function}_${json.ID}_${json.Version}_${json.Time}_${json.Shot}_RTS.png`;
-		fs.writeFileSync(path.join(folder, filenameRTS), (await RTSWindow.webContents.capturePage()).toPNG());
+	try {
+		const image = await window.webContents.capturePage();
+
+		if (image.isEmpty()) return;
+
+		const folder = path.join(TREM.getPath("userData"), "EEW");
+		await fs.promises.mkdir(folder, { recursive: true });
+		await fs.promises.writeFile(path.join(folder, filename), image.toJPEG(EEW_SHOT_QUALITY));
+	} catch (err) {
+		console.error("[screenshotEEW]", err);
 	}
+}
+
+ipcMain.on("screenshotEEW", async (event, json) => {
+	const name = `${json.Function}_${json.ID}_${json.Version}_${json.Time}_${json.Shot}`;
+	await saveEEWShot(MainWindow, `${name}.jpg`);
+
+	if (RTSWindow && json.Function != "replay_eew")
+		await saveEEWShot(RTSWindow, `${name}_RTS.jpg`);
 });
 
 // Webhook 附圖：擷取主視窗，寬度超過 1024 時縮小，存成 JPEG 減少上傳量
@@ -883,14 +891,8 @@ ipcMain.handle("webhook:capture", async (event, { full = false } = {}) => {
 	return { type: "image/jpeg", data: image.toJPEG(85) };
 });
 
-ipcMain.on("screenshotEEWI", async (event, json) => {
-	// return;
-	const folder = path.join(TREM.getPath("userData"), "EEW");
-
-	if (!fs.existsSync(folder))
-		fs.mkdirSync(folder);
-	const filename = `${json.Function}_${json.ID}_${json.Version}_${json.Time}_${json.Shot}.png`;
-	fs.writeFileSync(path.join(folder, filename), (await IntensityWindow.webContents.capturePage()).toPNG());
+ipcMain.on("screenshotEEWI", (event, json) => {
+	saveEEWShot(IntensityWindow, `${json.Function}_${json.ID}_${json.Version}_${json.Time}_${json.Shot}.jpg`);
 });
 
 ipcMain.on("screenshot", async () => {
