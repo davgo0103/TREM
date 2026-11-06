@@ -20,8 +20,9 @@ class SSEStream {
 	 * @param {(message: string, level: number) => void} [options.log]
 	 * @param {number} [options.reconnectDelay]
 	 * @param {Record<string, string>} [options.headers] 額外的請求 Header
+	 * @param {() => number} [options.staleMs] 多久沒收到東西視為卡住；每次收到資料時呼叫，可依模式調整
 	 */
-	constructor({ label, url, onEvent, onComment = () => void 0, log = () => void 0, reconnectDelay = 3_000, headers = {} }) {
+	constructor({ label, url, onEvent, onComment = () => void 0, log = () => void 0, reconnectDelay = 3_000, headers = {}, staleMs = () => STALE_MS }) {
 		this.label = label;
 		this.url = url;
 		this.onEvent = onEvent;
@@ -29,6 +30,7 @@ class SSEStream {
 		this.log = log;
 		this.reconnectDelay = reconnectDelay;
 		this.headers = headers;
+		this.staleMs = staleMs;
 		this.failures = 0;
 		this.conn = null;
 		this.retryTimer = null;
@@ -107,11 +109,13 @@ class SSEStream {
 		let stale;
 
 		const touch = () => {
+			const ms = this.staleMs();
+
 			clearTimeout(stale);
 			stale = setTimeout(() => {
-				this.log(`${this.label} no data for ${STALE_MS / 1000}s`, 2);
+				this.log(`${this.label} no data for ${ms / 1000}s`, 2);
 				controller.abort();
-			}, STALE_MS);
+			}, ms);
 		};
 
 		const fail = (why) => {

@@ -51,6 +51,9 @@ class Configuration extends EventEmitter {
 				set(target, key, value) {
 					target[key] = value;
 					thisClass.save();
+
+					// Proxy 的 set 要回傳 true，不然在嚴格模式（例如畫面透過 @electron/remote 寫設定）會丟 TypeError
+					return true;
 				},
 				get(target, key) {
 					return target[key];

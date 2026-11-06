@@ -613,6 +613,26 @@ ipcMain.on("openFolder", (event, url) => {
 		shell.openPath(url);
 });
 
+// 非同步讀幾個設定值，取代 @electron/remote 逐一同步讀取
+ipcMain.handle("config:get", (event, keys) => Object.fromEntries(keys.map((key) => [key, TREM.Configuration.data[key]])));
+
+// 畫面程序請主程序把視窗叫到前面（見 earthquake.js 的 raiseMainWindow）
+ipcMain.on("window:raise", (event, { show, cover, flash }) => {
+	const window = BrowserWindow.fromWebContents(event.sender);
+
+	if (!window || window.isDestroyed()) return;
+
+	if (show) window.showInactive();
+
+	if (cover && !window.isFullScreen()) {
+		window.setAlwaysOnTop(true);
+		window.focus();
+		window.setAlwaysOnTop(false);
+	}
+
+	if (flash && !window.isFocused()) window.flashFrame(true);
+});
+
 ipcMain.on("openURL", (event, url) => {
 	if (url === "releases")
 		shell.openExternal(`https://github.com/davgo0103/TREM/releases/tag/v${get_Version}`);
@@ -938,7 +958,8 @@ function restart() {
 
 function emitAllWindow(channel, ...args) {
 	for (const [key, win] of TREM.Window[Symbol.iterator]())
-		if (win instanceof BrowserWindow)
+		// 關掉的設定、RTS 視窗還留在清單裡，送過去只會丟例外並把整份參數印出來
+		if (win instanceof BrowserWindow && !win.isDestroyed())
 			try {
 				win.webContents.send(channel, ...args);
 			} catch (error) {

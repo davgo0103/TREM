@@ -165,8 +165,22 @@ const Real_time_station_run = () => {
 	syncWaveStreams();
 };
 
-const Real_time_station = () => {
+// 每秒檢查一次測站與主題設定有沒有被改：一次非同步向主程序要這幾個值
+// （之前每個值都經 app.Configuration.data 讀，每秒二十幾次同步 IPC）
+const WATCHED_KEYS = [
+	"Real-time.station",
+	"Real-time.station.1",
+	"Real-time.station.2",
+	"Real-time.station.3",
+	"Real-time.station.4",
+	"Real-time.station.5",
+	"theme.color",
+	"theme.dark",
+];
+
+const Real_time_station = async () => {
 	try {
+		const config = await ipcRenderer.invoke("config:get", WATCHED_KEYS);
 		const _data = [
 			parseInt(Realtimestation1.split("-")[2]),
 			parseInt(Realtimestation2.split("-")[2]),
@@ -176,29 +190,29 @@ const Real_time_station = () => {
 			parseInt(Realtimestation.split("-")[2]),
 		];
 
-		if (Realtimestation != app.Configuration.data["Real-time.station"]) {
-			Realtimestation = app.Configuration.data["Real-time.station"];
+		if (Realtimestation != config["Real-time.station"]) {
+			Realtimestation = config["Real-time.station"];
 			Real_time_station_run(_data);
-		} else if (Realtimestation1 != app.Configuration.data["Real-time.station.1"]) {
-			Realtimestation1 = app.Configuration.data["Real-time.station.1"];
+		} else if (Realtimestation1 != config["Real-time.station.1"]) {
+			Realtimestation1 = config["Real-time.station.1"];
 			Real_time_station_run(_data);
-		} else if (Realtimestation2 != app.Configuration.data["Real-time.station.2"]) {
-			Realtimestation2 = app.Configuration.data["Real-time.station.2"];
+		} else if (Realtimestation2 != config["Real-time.station.2"]) {
+			Realtimestation2 = config["Real-time.station.2"];
 			Real_time_station_run(_data);
-		} else if (Realtimestation3 != app.Configuration.data["Real-time.station.3"]) {
-			Realtimestation3 = app.Configuration.data["Real-time.station.3"];
+		} else if (Realtimestation3 != config["Real-time.station.3"]) {
+			Realtimestation3 = config["Real-time.station.3"];
 			Real_time_station_run(_data);
-		} else if (Realtimestation4 != app.Configuration.data["Real-time.station.4"]) {
-			Realtimestation4 = app.Configuration.data["Real-time.station.4"];
+		} else if (Realtimestation4 != config["Real-time.station.4"]) {
+			Realtimestation4 = config["Real-time.station.4"];
 			Real_time_station_run(_data);
-		} else if (Realtimestation5 != app.Configuration.data["Real-time.station.5"]) {
-			Realtimestation5 = app.Configuration.data["Real-time.station.5"];
+		} else if (Realtimestation5 != config["Real-time.station.5"]) {
+			Realtimestation5 = config["Real-time.station.5"];
 			Real_time_station_run(_data);
-		} else if (themecolor != app.Configuration.data["theme.color"]) {
-			themecolor = app.Configuration.data["theme.color"];
+		} else if (themecolor != config["theme.color"]) {
+			themecolor = config["theme.color"];
 			setCharts(_data);
-		} else if (themedark != app.Configuration.data["theme.dark"]) {
-			themedark = app.Configuration.data["theme.dark"];
+		} else if (themedark != config["theme.dark"]) {
+			themedark = config["theme.dark"];
 			setCharts(_data);
 		}
 	} catch (error) {

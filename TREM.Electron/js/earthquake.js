@@ -657,6 +657,29 @@ const roll = document.getElementById("rolllist");
 let rtsRollHidden = false;
 win.setAlwaysOnTop(false);
 
+/**
+ * 依設定把主視窗叫到前面：顯示（不搶焦點）、蓋到最上層、工作列閃爍
+ * 交給主程序一次做完；win.* 是 @electron/remote 的同步呼叫，每個都要等主程序回應，速報時會延後畫面與音效
+ * @param {{ show?: boolean, cover?: boolean, flash?: boolean }} options
+ */
+function raiseMainWindow({ show = false, cover = false, flash = false }) {
+	if (show || cover || flash) ipcRenderer.send("window:raise", { show, cover, flash });
+}
+
+// 內容沒變就不寫：即使字串相同，寫 innerText／className 也會換掉節點或重算樣式；時鐘、速報資訊每秒都會更新
+function setText(el, text) {
+	// 跟之前的 jQuery .text(undefined) 一樣：沒有值就不動
+	if (text == null) return;
+
+	text = String(text);
+
+	if (el && el.textContent !== text) el.textContent = text;
+}
+
+function setClassName(el, className) {
+	if (el && el.className !== className) el.className = className;
+}
+
 let fullscreenTipTimeout;
 win.on("enter-full-screen", () => {
 	$("#fullscreen-notice").addClass("show");
@@ -708,6 +731,8 @@ async function init() {
 		log("Initializing clock", 1, "Clock", "init");
 		dump({ level: 0, message: "Initializing clock", origin: "Clock" });
 
+		let lastIntensityLog = "";
+
 		if (!Timers.clock)
 			Timers.clock = setInterval(() => {
 				if (isRtsDesynced() && replayTemp == 0 && replay == 0) {
@@ -715,12 +740,12 @@ async function init() {
 						time.classList.add("desynced");
 					// 停在最後收到即時資料的時間，一眼看出資料從何時中斷
 					const now_f = now_format(rts_response?.time ? new Date(rts_response.time) : NOW());
-					time.innerText = `${now_f}`;
-					time1.innerText = `${now_f}`;
+					setText(time, now_f);
+					setText(time1, now_f);
 				} else if (replayTemp) {
 					if (!time.classList.contains("replay"))
 						time.classList.add("replay");
-					time.innerText = `${now_format(new Date(replayTemp))}`;
+					setText(time, now_format(new Date(replayTemp)));
 
 					// if (NOW().getTime() - replayT > 180_000 && !Object.keys(eew).length) {
 					if ((replayTemp - replay) > 300_000) {
@@ -730,7 +755,7 @@ async function init() {
 				} else if (replay) {
 					if (!time.classList.contains("replay"))
 						time.classList.add("replay");
-					time.innerText = `${now_format(new Date(replay + (NOW().getTime() - replayT)))}`;
+					setText(time, now_format(new Date(replay + (NOW().getTime() - replayT))));
 
 					// if (NOW().getTime() - replayT > 180_000 && !Object.keys(eew).length) {
 					if (NOW().getTime() - replayT > 300_000) {
@@ -745,8 +770,8 @@ async function init() {
 						time.classList.remove("desynced");
 
 					const now_f = now_format(NOW());
-					time.innerText = `${now_f}`;
-					time1.innerText = `${now_f}`;
+					setText(time, now_f);
+					setText(time1, now_f);
 
 					if (replaytestEEW != 0 && NOW().getTime() - replaytestEEW > 300_000) {
 						replaytestEEW = 0;
@@ -803,17 +828,26 @@ async function init() {
 				const stationPercentage = Math.round(stationnow / stationnowall * 1000) / 10;
 
 				// const formatMemoryUsage = (data) => `${Math.round(data / 1024 / 1024 * 100) / 100} MB`;
-				const memoryData = process.memoryUsage();
-				const rss = `${(((memoryData.rss / 1024) / 1024) / 1024).toFixed(2)} GB`;
+				// rss() 只讀常駐記憶體，不像 memoryUsage() 還要統計整個 heap
+				const rss = `${(process.memoryUsage.rss() / 1024 / 1024 / 1024).toFixed(2)} GB`;
 				// const warn = (Warn) ? "⚠️" : "";
 				// const unlock = (Unlock) ? "⚡" : "";
-				$("#log").text(`${stationnow}/${stationnowall} | ${stationPercentage}% | ${rss}`);
-				$("#log1").text(`${stationnow}/${stationnowall} | ${stationPercentage}% | ${rss}`);
+				const logLine = `${stationnow}/${stationnowall} | ${stationPercentage}% | ${rss}`;
+				setText(document.getElementById("log"), logLine);
+				setText(document.getElementById("log1"), logLine);
 				const statusLine = `${APP_VERSION} by 小蔡 ${Ping} ${GetDataState} ${Warn}`;
 
-				ipcRenderer.send("TREMIntensitylog2", { time: now_format(NOW()), log: `${stationnow}/${stationnowall} | ${stationPercentage}% | ${rss}`, ver: statusLine });
-				$("#app-version").text(statusLine);
-				$("#app-version1").text(statusLine);
+				// 震度視窗的狀態列：內容變了才送
+				const intensityLog = { time: now_format(NOW()), log: logLine, ver: statusLine };
+				const intensityLogKey = `${intensityLog.time}|${logLine}|${statusLine}`;
+
+				if (intensityLogKey != lastIntensityLog) {
+					lastIntensityLog = intensityLogKey;
+					ipcRenderer.send("TREMIntensitylog2", intensityLog);
+				}
+
+				setText(document.getElementById("app-version"), statusLine);
+				setText(document.getElementById("app-version1"), statusLine);
 			}, 500);
 
 		if (!Timers.tsunami)
@@ -926,26 +960,20 @@ async function init() {
 				})
 				.on("drag", () => mapLock = true)
 				.on("zoomend", () => {
-					if (Maps.main.getZoom() >= 13.5)
-						for (const key in Station) {
-							const tooltip = Station[key].getTooltip();
+					// 放大到 13.5 以上常駐顯示測站提示框；只重綁狀態真的要變的（之前每次縮放都把全部測站拆掉重綁）
+					const permanent = Maps.main.getZoom() >= 13.5;
 
-							if (tooltip) {
-								Station[key].unbindTooltip();
-								tooltip.options.permanent = true;
-								Station[key].bindTooltip(tooltip);
-							}
-						}
-					else
-						for (const key in Station) {
-							const tooltip = Station[key].getTooltip();
+					for (const key in Station) {
+						const tooltip = Station[key].getTooltip();
 
-							if (tooltip && !Station[key].keepTooltipAlive) {
-								Station[key].unbindTooltip();
-								tooltip.options.permanent = false;
-								Station[key].bindTooltip(tooltip);
-							}
-						}
+						if (!tooltip || tooltip.options.permanent == permanent) continue;
+
+						if (!permanent && Station[key].keepTooltipAlive) continue;
+
+						Station[key].unbindTooltip();
+						tooltip.options.permanent = permanent;
+						Station[key].bindTooltip(tooltip);
+					}
 				});
 			Maps.main._fadeAnimated = setting["map.animation"];
 			Maps.main._zoomAnimated = setting["map.animation"];
@@ -1460,7 +1488,7 @@ function PGAMain() {
 						});
 					}
 
-					handler(Response);
+					handleRtsOnce(Response);
 				} catch (err) {
 					console.log(err);
 					// TimerDesynced = true;
@@ -1469,6 +1497,18 @@ function PGAMain() {
 			}, (NOW().getMilliseconds() > 500) ? 1000 - NOW().getMilliseconds() : 500 - NOW().getMilliseconds());
 		}, 500);
 	}
+}
+
+// 即時資料約每秒一筆，計時器每 0.5 秒跑一次：同一筆資料 1 秒內不重跑整個測站迴圈與 DOM 更新
+let lastRts = { data: null, at: 0 };
+
+function handleRtsOnce(data) {
+	const now = Date.now();
+
+	if (data === lastRts.data && now - lastRts.at < 1_000) return;
+
+	lastRts = { data, at: now };
+	handler(data);
 }
 
 function PGAMainbkup() {
@@ -1543,7 +1583,7 @@ function PGAMainbkup() {
 					 else if (!replayD)
 						PGAMain();
 
-					handler(Response);
+					handleRtsOnce(Response);
 				} catch (err) {
 					console.log(err);
 					// TimerDesynced = true;
@@ -1635,6 +1675,9 @@ function handler(Json) {
 
 	// if (Object.keys(detection_list).length) console.log(detection_list);
 
+	// 迴圈外算一次；之前每個測站都在 keys 裡找一遍
+	const realtimeStationListed = Object.hasOwn(station, setting["Real-time.station"]);
+
 	for (let index = 0, keys = Object.keys(station), n = keys.length; index < n; index++) {
 		const uuid = keys[index];
 		const id = uuid.split("-")[2];
@@ -1704,29 +1747,29 @@ function handler(Json) {
 			intensity = "-";
 
 			if (rtstation1 == "") {
-				if (keys.includes(setting["Real-time.station"])) {
+				if (realtimeStationListed) {
 					if (keys[index] == setting["Real-time.station"]) {
 						if (document.getElementById("rt-station").classList.contains("hide"))
 							document.getElementById("rt-station").classList.remove("hide");
-						document.getElementById("rt-station-local-intensity").className = `rt-station-intensity ${(amount < 999 && intensity != "NA") ? IntensityToClassString(intensity) : "na"}`;
-						document.getElementById("rt-station-local-id").innerText = keys[index];
-						document.getElementById("rt-station-local-name").innerText = current_station_data.Loc;
-						document.getElementById("rt-station-local-time").innerText = now_format(off_now);
-						document.getElementById("rt-station-local-pga").innerText = amount;
+						setClassName(document.getElementById("rt-station-local-intensity"), `rt-station-intensity ${(amount < 999 && intensity != "NA") ? IntensityToClassString(intensity) : "na"}`);
+						setText(document.getElementById("rt-station-local-id"), keys[index]);
+						setText(document.getElementById("rt-station-local-name"), current_station_data.Loc);
+						setText(document.getElementById("rt-station-local-time"), now_format(off_now));
+						setText(document.getElementById("rt-station-local-pga"), amount);
 					}
 				} else {
-					document.getElementById("rt-station-local-intensity").className = "rt-station-intensity na";
-					document.getElementById("rt-station-local-id").innerText = TREM.Localization.getString("Realtime_No_Data");
-					document.getElementById("rt-station-local-name").innerText = TREM.Localization.getString("Realtime_No_Data");
-					document.getElementById("rt-station-local-time").innerText = "--:--:--";
-					document.getElementById("rt-station-local-pga").innerText = "--";
+					setClassName(document.getElementById("rt-station-local-intensity"), "rt-station-intensity na");
+					setText(document.getElementById("rt-station-local-id"), TREM.Localization.getString("Realtime_No_Data"));
+					setText(document.getElementById("rt-station-local-name"), TREM.Localization.getString("Realtime_No_Data"));
+					setText(document.getElementById("rt-station-local-time"), "--:--:--");
+					setText(document.getElementById("rt-station-local-pga"), "--");
 				}
 			} else if (rtstation1 == keys[index]) {
-				document.getElementById("rt-station-local-intensity").className = `rt-station-intensity ${(amount < 999 && intensity != "NA") ? IntensityToClassString(intensity) : "na"}`;
-				document.getElementById("rt-station-local-id").innerText = keys[index];
-				document.getElementById("rt-station-local-name").innerText = current_station_data.Loc;
-				document.getElementById("rt-station-local-time").innerText = now_format(off_now);
-				document.getElementById("rt-station-local-pga").innerText = amount;
+				setClassName(document.getElementById("rt-station-local-intensity"), `rt-station-intensity ${(amount < 999 && intensity != "NA") ? IntensityToClassString(intensity) : "na"}`);
+				setText(document.getElementById("rt-station-local-id"), keys[index]);
+				setText(document.getElementById("rt-station-local-name"), current_station_data.Loc);
+				setText(document.getElementById("rt-station-local-time"), now_format(off_now));
+				setText(document.getElementById("rt-station-local-pga"), amount);
 			}
 		} else {
 			station_time_json[uuid] = 0;
@@ -1786,29 +1829,29 @@ function handler(Json) {
 			station_tooltip = `<div>${keys[index]}</div><div>${current_station_data.Loc}</div><div>PGA ${amount} gal</div>${pgv != null ? `<div>PGV ${pgv} kine</div>` : ""}<div>計測震度 ${current_data.i}</div>`;
 
 			if (rtstation1 == "") {
-				if (keys.includes(setting["Real-time.station"])) {
+				if (realtimeStationListed) {
 					if (keys[index] == setting["Real-time.station"]) {
 						if (document.getElementById("rt-station").classList.contains("hide"))
 							document.getElementById("rt-station").classList.remove("hide");
-						document.getElementById("rt-station-local-intensity").className = `rt-station-intensity ${(amount < 999 && intensity != "NA") ? IntensityToClassString(intensity) : "na"}`;
-						document.getElementById("rt-station-local-id").innerText = keys[index];
-						document.getElementById("rt-station-local-name").innerText = current_station_data.Loc;
-						document.getElementById("rt-station-local-time").innerText = now_f;
-						document.getElementById("rt-station-local-pga").innerText = amount;
+						setClassName(document.getElementById("rt-station-local-intensity"), `rt-station-intensity ${(amount < 999 && intensity != "NA") ? IntensityToClassString(intensity) : "na"}`);
+						setText(document.getElementById("rt-station-local-id"), keys[index]);
+						setText(document.getElementById("rt-station-local-name"), current_station_data.Loc);
+						setText(document.getElementById("rt-station-local-time"), now_f);
+						setText(document.getElementById("rt-station-local-pga"), amount);
 					}
 				} else {
-					document.getElementById("rt-station-local-intensity").className = "rt-station-intensity na";
-					document.getElementById("rt-station-local-id").innerText = TREM.Localization.getString("Realtime_No_Data");
-					document.getElementById("rt-station-local-name").innerText = TREM.Localization.getString("Realtime_No_Data");
-					document.getElementById("rt-station-local-time").innerText = "--:--:--";
-					document.getElementById("rt-station-local-pga").innerText = "--";
+					setClassName(document.getElementById("rt-station-local-intensity"), "rt-station-intensity na");
+					setText(document.getElementById("rt-station-local-id"), TREM.Localization.getString("Realtime_No_Data"));
+					setText(document.getElementById("rt-station-local-name"), TREM.Localization.getString("Realtime_No_Data"));
+					setText(document.getElementById("rt-station-local-time"), "--:--:--");
+					setText(document.getElementById("rt-station-local-pga"), "--");
 				}
 			} else if (rtstation1 == keys[index]) {
-				document.getElementById("rt-station-local-intensity").className = `rt-station-intensity ${(amount < 999 && intensity != "NA") ? IntensityToClassString(intensity) : "na"}`;
-				document.getElementById("rt-station-local-id").innerText = keys[index];
-				document.getElementById("rt-station-local-name").innerText = current_station_data.Loc;
-				document.getElementById("rt-station-local-time").innerText = now_f;
-				document.getElementById("rt-station-local-pga").innerText = amount;
+				setClassName(document.getElementById("rt-station-local-intensity"), `rt-station-intensity ${(amount < 999 && intensity != "NA") ? IntensityToClassString(intensity) : "na"}`);
+				setText(document.getElementById("rt-station-local-id"), keys[index]);
+				setText(document.getElementById("rt-station-local-name"), current_station_data.Loc);
+				setText(document.getElementById("rt-station-local-time"), now_f);
+				setText(document.getElementById("rt-station-local-pga"), amount);
 			}
 		}
 
@@ -1933,7 +1976,7 @@ function handler(Json) {
 						new Notification("🟥 強震檢測", {
 							body   : `${loc}`,
 							icon   : "../TREM.ico",
-							silent : win.isFocused(),
+							silent : document.hasFocus(),
 						});
 					} else if (max_intensity > 1 || intensitytag > 1) {
 						if (speecd_use) TREM.speech.speak({ text: `震動檢測，${loc}` });
@@ -1943,7 +1986,7 @@ function handler(Json) {
 						new Notification("🟨 震動檢測", {
 							body   : `${loc}`,
 							icon   : "../TREM.ico",
-							silent : win.isFocused(),
+							silent : document.hasFocus(),
 						});
 					} else if (intensitytag == -1) {
 						if (speecd_use) TREM.speech.speak({ text: `弱反應，${loc}` });
@@ -1953,7 +1996,7 @@ function handler(Json) {
 						new Notification("🟩 弱反應", {
 							body   : `${loc}`,
 							icon   : "../TREM.ico",
-							silent : win.isFocused(),
+							silent : document.hasFocus(),
 						});
 					}
 
@@ -1972,16 +2015,7 @@ function handler(Json) {
 					});
 				}, 1250);
 
-				if (setting["Real-time.show"]) win.showInactive();
-
-				if (setting["Real-time.cover"])
-					if (!win.isFullScreen()) {
-						win.setAlwaysOnTop(true);
-						win.focus();
-						win.setAlwaysOnTop(false);
-					}
-
-				if (!win.isFocused()) win.flashFrame(true);
+				raiseMainWindow({ show: setting["Real-time.show"], cover: setting["Real-time.cover"], flash: true });
 
 				// TREM.MapIntensity.trem = false;
 				// TREM.MapIntensity.MaxI = max_intensity;
@@ -2053,22 +2087,22 @@ function handler(Json) {
 	}
 
 	if (MAXPGA.station != "NA") {
-		document.getElementById("rt-station-max-intensity").className = `rt-station-intensity ${(MAXPGA.pga < 999) ? IntensityToClassString(MAXPGA.intensity) : "na"}`;
-		document.getElementById("rt-station-max-id").innerText = MAXPGA.station;
-		document.getElementById("rt-station-max-name").innerText = MAXPGA.loc;
-		document.getElementById("rt-station-max-time").innerText = now_format(MAXPGA.time);
-		document.getElementById("rt-station-max-pga").innerText = MAXPGA.pga;
+		setClassName(document.getElementById("rt-station-max-intensity"), `rt-station-intensity ${(MAXPGA.pga < 999) ? IntensityToClassString(MAXPGA.intensity) : "na"}`);
+		setText(document.getElementById("rt-station-max-id"), MAXPGA.station);
+		setText(document.getElementById("rt-station-max-name"), MAXPGA.loc);
+		setText(document.getElementById("rt-station-max-time"), now_format(MAXPGA.time));
+		setText(document.getElementById("rt-station-max-pga"), MAXPGA.pga);
 	} else {
-		document.getElementById("rt-station-max-intensity").className = "rt-station-intensity na";
-		document.getElementById("rt-station-max-id").innerText = TREM.Localization.getString("Realtime_No_Data");
-		document.getElementById("rt-station-max-name").innerText = TREM.Localization.getString("Realtime_No_Data");
-		document.getElementById("rt-station-max-time").innerText = "--:--:--";
-		document.getElementById("rt-station-max-pga").innerText = "--";
-		document.getElementById("rt-station-local-intensity").className = "rt-station-intensity na";
-		document.getElementById("rt-station-local-id").innerText = TREM.Localization.getString("Realtime_No_Data");
-		document.getElementById("rt-station-local-name").innerText = TREM.Localization.getString("Realtime_No_Data");
-		document.getElementById("rt-station-local-time").innerText = "--:--:--";
-		document.getElementById("rt-station-local-pga").innerText = "--";
+		setClassName(document.getElementById("rt-station-max-intensity"), "rt-station-intensity na");
+		setText(document.getElementById("rt-station-max-id"), TREM.Localization.getString("Realtime_No_Data"));
+		setText(document.getElementById("rt-station-max-name"), TREM.Localization.getString("Realtime_No_Data"));
+		setText(document.getElementById("rt-station-max-time"), "--:--:--");
+		setText(document.getElementById("rt-station-max-pga"), "--");
+		setClassName(document.getElementById("rt-station-local-intensity"), "rt-station-intensity na");
+		setText(document.getElementById("rt-station-local-id"), TREM.Localization.getString("Realtime_No_Data"));
+		setText(document.getElementById("rt-station-local-name"), TREM.Localization.getString("Realtime_No_Data"));
+		setText(document.getElementById("rt-station-local-time"), "--:--:--");
+		setText(document.getElementById("rt-station-local-pga"), "--");
 	}
 
 	if (Object.keys(detected_box_list).length)
@@ -2188,16 +2222,7 @@ function handler(Json) {
 			}, 1250);
 			changeView("main", "#mainView_btn");
 
-			if (setting["Real-time.show"]) win.showInactive();
-
-			if (setting["Real-time.cover"])
-				if (!win.isFullScreen()) {
-					win.setAlwaysOnTop(true);
-					win.focus();
-					win.setAlwaysOnTop(false);
-				}
-
-			if (!win.isFocused()) win.flashFrame(true);
+			raiseMainWindow({ show: setting["Real-time.show"], cover: setting["Real-time.cover"], flash: true });
 			PGAtag = All[0].intensity;
 		}
 
@@ -2848,7 +2873,7 @@ function Report_GET_cwa(report) {
 		{
 			body   : `${location}發生規模 ${report.mag.toFixed(1)} 有感地震，最大震度${report.Max_Level_areaName}${report.Max_Level_stationName}${TREM.Constants.intensities[report.list[report.Max_Level_areaName].town[report.Max_Level_stationName].int].text}。`,
 			icon   : "../TREM.ico",
-			silent : win.isFocused(),
+			silent : document.hasFocus(),
 		});
 
 	setTimeout(() => {
@@ -2869,14 +2894,7 @@ function Report_GET_cwa(report) {
 
 	if (setting["audio.report"]) audioPlay("../audio/Report.wav");
 
-	if (setting["report.show"]) win.showInactive();
-
-	if (setting["report.cover"])
-		if (!win.isFullScreen()) {
-			win.setAlwaysOnTop(true);
-			win.focus();
-			win.setAlwaysOnTop(false);
-		}
+	raiseMainWindow({ show: setting["report.show"], cover: setting["report.cover"] });
 }
 
 ipcRenderer.on("ReportGET", () => {
@@ -3326,6 +3344,14 @@ function IntensityN(level) {
 // #endregion
 
 // #region Intensity >> Class String
+// 顏色亮度的結果記起來：每個觸發中的測站每秒都會呼叫，tinycolor 解析顏色不便宜
+const lightColorCache = new Map();
+
+function isLightColor(color) {
+	if (!lightColorCache.has(color)) lightColorCache.set(color, tinycolor(color).getLuminance() > 0.575);
+	return lightColorCache.get(color);
+}
+
 function IntensityToClassString(level) {
 	let classname = (level == 9) ? "seven"
 		: (level == 8) ? "six strong"
@@ -3339,7 +3365,7 @@ function IntensityToClassString(level) {
 										: (level == "na") ? "na"
 											: "zero";
 
-	if (tinycolor(setting["theme.customColor"] ? setting[`theme.int.${level}`] : [
+	if (isLightColor(setting["theme.customColor"] ? setting[`theme.int.${level}`] : [
 		"#757575",
 		"#757575",
 		"#2774C2",
@@ -3350,7 +3376,7 @@ function IntensityToClassString(level) {
 		"#F55647",
 		"#DB1F1F",
 		"#862DB3",
-	][level]).getLuminance() > 0.575)
+	][level]))
 		classname += " darkText";
 
 	return classname;
@@ -3726,6 +3752,9 @@ function freertsget() {
 	trem_sse ??= new SSEStream({
 		label   : "trem",
 		url     : () => `https://api.lb.exptech.dev/api/v1/trem/sse?topics=${TREM_SSE_TOPICS}${rts_background ? "" : "&mode=live"}`,
+		// live 模式每秒都有即時資料，15 秒沒收到就重連；背景模式只有觸發資料與心跳、或從沒收到過資料（例如沒有權限）時用預設值，
+		// 不然會一直斷線重連
+		staleMs : () => (rts_background || !rts_ws_timestamp ? 90_000 : 15_000),
 		onEvent : (event, data) => {
 			if (event === "info") {
 				log(`trem SSE connected ${data}`, 1, "server", "rts-sse");
@@ -4414,12 +4443,12 @@ function FCMdata(json, Unit) {
 		NewReportTag = report.id;
 
 		if (report.id.match(/-/g).length === 3 && setting["report.onlycwachangeView"]) {
-			if (!win.isFocused())
+			if (!document.hasFocus())
 				new Notification("地震報告",
 					{
 						body   : `${location}發生規模 ${report.mag.toFixed(1)} 有感地震，最大震度${MaxareaName}${MaxstationName}${TREM.Constants.intensities[report.list[MaxareaName].town[MaxstationName].int].text}。`,
 						icon   : "../TREM.ico",
-						silent : win.isFocused(),
+						silent : document.hasFocus(),
 					});
 
 			addReport(report, true);
@@ -4442,23 +4471,16 @@ function FCMdata(json, Unit) {
 
 			if (setting["audio.report"]) audioPlay("../audio/Report.wav");
 
-			if (setting["report.show"]) win.showInactive();
-
-			if (setting["report.cover"])
-				if (!win.isFullScreen()) {
-					win.setAlwaysOnTop(true);
-					win.focus();
-					win.setAlwaysOnTop(false);
-				}
+			raiseMainWindow({ show: setting["report.show"], cover: setting["report.cover"] });
 		} else if (!setting["report.onlycwachangeView"]) {
 			if (report.loc.startsWith("地震資訊")) {
 				if (setting["report.getInfo"]) {
-					// if (!win.isFocused())
+					// if (!document.hasFocus())
 					// 	new Notification("地震報告",
 					// 		{
 					// 			body   : `${location}發生規模 ${report.magnitudeValue.toFixed(1)} 有感地震，最大震度${report.data[0].areaName}${report.data[0].eqStation[0].stationName}${TREM.Constants.intensities[report.data[0].eqStation[0].stationIntensity].text}。`,
 					// 			icon   : "../TREM.ico",
-					// 			silent : win.isFocused(),
+					// 			silent : document.hasFocus(),
 					// 		});
 
 					setTimeout(() => {
@@ -4479,24 +4501,17 @@ function FCMdata(json, Unit) {
 
 					if (setting["audio.report"]) audioPlay("../audio/Report.wav");
 
-					if (setting["report.show"]) win.showInactive();
-
-					if (setting["report.cover"])
-						if (!win.isFullScreen()) {
-							win.setAlwaysOnTop(true);
-							win.focus();
-							win.setAlwaysOnTop(false);
-						}
+					raiseMainWindow({ show: setting["report.show"], cover: setting["report.cover"] });
 
 					addReport(report, true);
 				}
 			} else if (report.id.match(/-/g).length === 3) {
-				if (!win.isFocused())
+				if (!document.hasFocus())
 					new Notification("地震報告",
 						{
 							body   : `${location}發生規模 ${report.mag.toFixed(1)} 有感地震，最大震度${MaxareaName}${MaxstationName}${TREM.Constants.intensities[report.list[MaxareaName].town[MaxstationName].int].text}。`,
 							icon   : "../TREM.ico",
-							silent : win.isFocused(),
+							silent : document.hasFocus(),
 						});
 
 				setTimeout(() => {
@@ -4517,14 +4532,7 @@ function FCMdata(json, Unit) {
 
 				if (setting["audio.report"]) audioPlay("../audio/Report.wav");
 
-				if (setting["report.show"]) win.showInactive();
-
-				if (setting["report.cover"])
-					if (!win.isFullScreen()) {
-						win.setAlwaysOnTop(true);
-						win.focus();
-						win.setAlwaysOnTop(false);
-					}
+				raiseMainWindow({ show: setting["report.show"], cover: setting["report.cover"] });
 
 				addReport(report, true);
 			}
@@ -4907,7 +4915,7 @@ TREM.Earthquake.on("eew", (data) => {
 	new Notification("EEW 強震即時警報", {
 		body   : body,
 		icon   : "../TREM.ico",
-		silent : win.isFocused(),
+		silent : document.hasFocus(),
 	});
 
 	if (speecd_use) {
@@ -4958,16 +4966,7 @@ TREM.Earthquake.on("eew", (data) => {
 		if (Alert) {
 			changeView("main", "#mainView_btn");
 
-			if (setting["eew.show"]) win.showInactive();
-
-			if (setting["eew.cover"])
-				if (!win.isFullScreen()) {
-					win.setAlwaysOnTop(true);
-					win.focus();
-					win.setAlwaysOnTop(false);
-				}
-
-			if (!win.isFocused()) win.flashFrame(true);
+			raiseMainWindow({ show: setting["eew.show"], cover: setting["eew.cover"], flash: true });
 		}
 
 		eewt.id = data.id;
@@ -5494,14 +5493,7 @@ TREM.Earthquake.on("tsunami", (data) => {
 		if (speecd_use) TREM.speech.speak({ text: "海嘯警報已發布，請迅速疏散至避難場所" });
 
 		if (data.number == 1) {
-			if (setting["report.show"]) win.showInactive();
-
-			if (setting["report.cover"])
-				if (!win.isFullScreen()) {
-					win.setAlwaysOnTop(true);
-					win.focus();
-					win.setAlwaysOnTop(false);
-				}
+			raiseMainWindow({ show: setting["report.show"], cover: setting["report.cover"] });
 
 			if (setting["audio.report"]) audioPlay("../audio/Water.wav");
 			Mapsmainfocus();
@@ -5532,7 +5524,7 @@ TREM.Earthquake.on("tsunami", (data) => {
 			new Notification("海嘯警報", {
 				body   : `${Now3} 發生地震\n請${data.area[i].areaName}迅速疏散至避難場所`,
 				icon   : "../TREM.ico",
-				silent : win.isFocused(),
+				silent : document.hasFocus(),
 			});
 			tsunami_level[data.area[i].areaName] = tsunami_color(data.area[i].waveHeight);
 		}
@@ -6004,69 +5996,58 @@ function clear(ID, type) {
 }
 
 function updateText() {
-	$("#alert-box")[0].className = `${INFO[TINFO].alert_type} ${IntensityToClassString(INFO[TINFO].alert_intensity)}`;
-	$("#alert-local")[0].className = `alert-item ${IntensityToClassString(INFO[TINFO].alert_local)}`;
-	$("#alert-provider").text(`${INFO.length > 1 ? `${TINFO + 1} ` : ""}${INFO[TINFO].alert_provider}`);
-	$("#alert-number").text(`${INFO[TINFO].alert_number}`);
-	$("#alert-location").text(INFO[TINFO].alert_location);
-	$("#alert-time").text(timeconvert(INFO[TINFO].alert_time).format("YYYY/MM/DD HH:mm:ss"));
-	$("#alert-magnitude").text(INFO[TINFO].alert_magnitude);
-	$("#alert-depth").text(INFO[TINFO].alert_depth);
-	$("#alert-box").addClass("show");
-	$("#map-legends").addClass("show");
+	const info = INFO[TINFO];
 
-	if (TREM.EEW.get(INFO[TINFO].ID).Cancel != undefined) {
-		$("#alert-p").text("X");
-		$("#alert-s").text("X");
-	} else if (INFO[TINFO].alert_sTime == null) {
-		$("#alert-p").text("?");
-		$("#alert-s").text("?");
+	setClassName(document.getElementById("alert-box"), `${info.alert_type} ${IntensityToClassString(info.alert_intensity)} show`);
+	setClassName(document.getElementById("alert-local"), `alert-item ${IntensityToClassString(info.alert_local)}`);
+	setText(document.getElementById("alert-provider"), `${INFO.length > 1 ? `${TINFO + 1} ` : ""}${info.alert_provider}`);
+	setText(document.getElementById("alert-number"), info.alert_number);
+	setText(document.getElementById("alert-location"), info.alert_location);
+	setText(document.getElementById("alert-time"), timeconvert(info.alert_time).format("YYYY/MM/DD HH:mm:ss"));
+	setText(document.getElementById("alert-magnitude"), info.alert_magnitude);
+	setText(document.getElementById("alert-depth"), info.alert_depth);
+	document.getElementById("map-legends").classList.add("show");
+
+	const alertP = document.getElementById("alert-p");
+	const alertS = document.getElementById("alert-s");
+
+	if (TREM.EEW.get(info.ID).Cancel != undefined) {
+		setText(alertP, "X");
+		setText(alertS, "X");
+	} else if (info.alert_sTime == null) {
+		setText(alertP, "?");
+		setText(alertS, "?");
 	} else {
-		let num = Math.floor((INFO[TINFO].alert_sTime - NOW().getTime()) / 1000);
+		const left = (t) => {
+			const num = Math.floor((t - NOW().getTime()) / 1000);
+			return num <= 0 ? "" : num;
+		};
 
-		if (num <= 0) num = "";
-		$("#alert-s").text(num);
-
-		num = Math.floor((INFO[TINFO].alert_pTime - NOW().getTime()) / 1000);
-
-		if (num <= 0) num = "";
-		$("#alert-p").text(num);
+		setText(alertS, left(info.alert_sTime));
+		setText(alertP, left(info.alert_pTime));
 	}
 
 	// bring waves to front
-	// if (EarthquakeList[INFO[TINFO].ID].CircleP) EarthquakeList[INFO[TINFO].ID].CircleP.bringToFront();
-	// if (EarthquakeList[INFO[TINFO].ID].CircleS) EarthquakeList[INFO[TINFO].ID].CircleS.bringToFront();
+	// if (EarthquakeList[info.ID].CircleP) EarthquakeList[info.ID].CircleP.bringToFront();
+	// if (EarthquakeList[info.ID].CircleS) EarthquakeList[info.ID].CircleS.bringToFront();
 
+	// 小地圖只顯示目前這一報的震央與震波（這些圖層存在 EarthquakeList，之前從 TREM.EEW 找，永遠找不到）
 	for (const key in EarthquakeList) {
-		if (!TREM.EEW.get(key)?.epicenterIconTW?.getElement()?.classList?.contains("hide"))
-			TREM.EEW.get(key)?.epicenterIconTW?.getElement()?.classList?.add("hide");
+		const hidden = key != info.ID;
 
-		if (!TREM.EEW.get(key)?.CirclePTW?.getElement()?.classList?.contains("hide"))
-			TREM.EEW.get(key)?.CirclePTW?.getElement()?.classList?.add("hide");
-
-		if (!TREM.EEW.get(key)?.CircleSTW?.getElement()?.classList?.contains("hide"))
-			TREM.EEW.get(key)?.CircleSTW?.getElement()?.classList?.add("hide");
+		for (const layer of [
+			EarthquakeList[key].epicenterIconTW,
+			EarthquakeList[key].CirclePTW,
+			EarthquakeList[key].CircleSTW,
+		])
+			layer?.getElement?.()?.classList.toggle("hide", hidden);
 
 		// 每秒都會執行：目前顯示的這一報不要移除再加回，否則色塊會每秒閃一次
-		if (TREM.EEW.get(key)?.geojson && key != INFO[TINFO].ID)
+		if (TREM.EEW.get(key)?.geojson && hidden)
 			TREM.EEW.get(key).geojson.remove();
 	}
 
-	if (TREM.EEW.get(INFO[TINFO].ID).epicenterIconTW) TREM.EEW.get(INFO[TINFO].ID).epicenterIconTW.getElement()?.classList?.remove("hide");
-
-	if (TREM.EEW.get(INFO[TINFO].ID).CirclePTW) TREM.EEW.get(INFO[TINFO].ID).CirclePTW.getElement()?.classList?.remove("hide");
-
-	if (TREM.EEW.get(INFO[TINFO].ID).CircleSTW) TREM.EEW.get(INFO[TINFO].ID).CircleSTW.getElement()?.classList?.remove("hide");
-
-	if (TREM.EEW.get(INFO[TINFO].ID)?.geojson && !Maps.mini.hasLayer(TREM.EEW.get(INFO[TINFO].ID).geojson)) TREM.EEW.get(INFO[TINFO].ID).geojson.addTo(Maps.mini);
-
-	const Num = Math.round(((NOW().getTime() - INFO[TINFO].Time) * 4 / 10) / INFO[TINFO].Depth);
-	const Catch = document.getElementById("box-10");
-
-	if (Num <= 100)
-		Catch.innerHTML = `<font color="white" size="6"><b>震波到地表進度: ${Num}%</b></font>`;
-	else
-		Catch.innerHTML = "";
+	if (TREM.EEW.get(info.ID)?.geojson && !Maps.mini.hasLayer(TREM.EEW.get(info.ID).geojson)) TREM.EEW.get(info.ID).geojson.addTo(Maps.mini);
 }
 
 const changeView = (args, el, event) => {

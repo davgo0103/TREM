@@ -711,7 +711,19 @@ TREM.Intensity = {
 		}
 	},
 
-	geteewinfo(raw) {
+	/**
+	 * 查這筆震度資料對應的速報震央；查不到每 3 秒重試，最多 1 分鐘，有新的震度資料就停
+	 * （之前沒有上限，伺服器一直沒回應時會永遠重試，舊的重試還可能把過時的震央畫上去）
+	 */
+	geteewinfo(raw, attempt = 1) {
+		const retry = () => {
+			if (attempt >= 20 || this._raw !== raw) return;
+
+			setTimeout(() => this.geteewinfo(raw, attempt + 1), 3000);
+		};
+
+		if (this._raw !== raw) return;
+
 		const controller1 = new AbortController();
 		setTimeout(() => {
 			controller1.abort();
@@ -726,6 +738,8 @@ TREM.Intensity = {
 					else
 						for (let i = 0; i < res3.length; i++)
 							if (res3[i].author == raw.author) {
+								if (this._raw !== raw) break;
+
 								raw.eq = res3[i].eq;
 								const time = new Date(raw.eq.time);
 								document.getElementById("intensity-overview-time").innerText = this.timeformat(time);
@@ -733,6 +747,7 @@ TREM.Intensity = {
 								document.getElementById("intensity-overview-longitude").innerText = raw.eq.lon;
 								document.getElementById("intensity-overview-magnitude").innerText = raw.eq.mag;
 								document.getElementById("intensity-overview-depth").innerText = raw.eq.depth;
+								this._markers?.remove();
 								this._markers = L.marker(
 									[raw.eq.lat, raw.eq.lon],
 									{
@@ -759,16 +774,12 @@ TREM.Intensity = {
 
 				});
 			else
-				setTimeout(() => {
-					this.geteewinfo(raw);
-				}, 3000);
+				retry();
 
 		}).catch((err) => {
 			log(err, 3, "geteewinfo", "intensity");
 			dump({ level: 2, message: err });
-			setTimeout(() => {
-				this.geteewinfo(raw);
-			}, 3000);
+			retry();
 		});
 	},
 

@@ -59,7 +59,8 @@ TREM.Report = {
 
 			this.reportList = reports.filter((v) => this._matchesFilter(v));
 
-			for (const report of reports) {
+			for (let index = 0; index < reports.length; index++) {
+				const report = reports[index];
 				const element = this._createReportItem(report);
 
 				if (!report.originTime) {
@@ -79,18 +80,19 @@ TREM.Report = {
 								iconSize  : [report.mag * 4, report.mag * 4],
 								className : `epicenterIcon ${IntensityToClassString(report.int)}`,
 							}),
-							opacity      : (reports.length - reports.indexOf(report)) / reports.length,
-							zIndexOffset : 1000 + reports.length - reports.indexOf(report),
+							opacity      : (reports.length - index) / reports.length,
+							zIndexOffset : 1000 + reports.length - index,
 						})
 						.on("click", () => {
 							TREM.set_report_overview = 0;
 							this.setView("report-overview", report.id);
 						}));
-					this._markersGroup = L.featureGroup(this._markers).addTo(Maps.report);
 				}
 
 				fragment.appendChild(element);
 			}
+
+			this._showMarkers();
 
 			document.getElementById("report-detail-header-number").innerText = `共 ${this.reportList.length} 個`;
 			this.reportListElement.appendChild(fragment);
@@ -476,7 +478,10 @@ ${report.loc ?? ""}`, 1, "delete", () => {
 		for (const report of added)
 			this._showItem(document.getElementById(report.id));
 
-		for (const report of newlist) {
+		const newIndex = new Map(newlist.map((report, index) => [report, index]));
+		const keyIndex = new Map(keys.map((key, index) => [key, index]));
+
+		for (const report of newlist)
 			this._markers.push(L.marker(
 				[report.lat, report.lon],
 				{
@@ -485,16 +490,24 @@ ${report.loc ?? ""}`, 1, "delete", () => {
 						iconSize  : [report.mag * 4, report.mag * 4],
 						className : `epicenterIcon ${IntensityToClassString(report.int)}`,
 					}),
-					opacity      : (newlist.length - newlist.indexOf(report)) / newlist.length,
-					zIndexOffset : 1000 + this.cache.size - keys.indexOf(report.id),
+					opacity      : (newlist.length - newIndex.get(report)) / newlist.length,
+					zIndexOffset : 1000 + this.cache.size - (keyIndex.get(report.id) ?? -1),
 				})
 				.on("click", () => {
 					TREM.set_report_overview = 0;
 					this.setView("report-overview", report.id);
 				}));
 
-			this._markersGroup = L.featureGroup(this._markers).addTo(Maps.report);
-		}
+		this._showMarkers();
+	},
+
+	/**
+	 * 把目前的標記用一個群組放到地圖上
+	 * 之前在迴圈裡每加一個標記就建一個新群組：n 筆報告要加 n²/2 次圖層，舊群組也從沒移除
+	 */
+	_showMarkers() {
+		this._markersGroup?.remove();
+		this._markersGroup = this._markers.length ? L.featureGroup(this._markers).addTo(Maps.report) : null;
 	},
 
 	/**
@@ -525,6 +538,9 @@ ${report.loc ?? ""}`, 1, "delete", () => {
 		}
 	},
 	_clearMap(resetFoucs = false) {
+		this._markersGroup?.remove();
+		this._markersGroup = null;
+
 		if (this._markers.length) {
 			for (const marker of this._markers)
 				marker.remove();
@@ -952,6 +968,7 @@ ${report.loc ?? ""}`, 1, "delete", () => {
 		this._setupzoomPredict();
 	},
 	_setupzoomPredict() {
+		this._markersGroup?.remove();
 		this._markersGroup = L.featureGroup(this._markers).addTo(Maps.report);
 
 		const zoomPredict = (Maps.report.getBoundsZoom(this._markersGroup.getBounds()) - Maps.report.getMinZoom()) / (Maps.report.getMaxZoom() * (1.5 ** (Maps.report.getBoundsZoom(this._markersGroup.getBounds()) - Maps.report.getMinZoom())));
