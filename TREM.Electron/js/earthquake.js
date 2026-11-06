@@ -1553,6 +1553,36 @@ function PGAMainbkup() {
 	}
 }
 
+/**
+ * 換測站圖示的等級與大小
+ * 不用 setIcon：它會把圖示的 DOM 和事件整個刪掉重建，地震時大量測站同時變色會卡
+ */
+function updateStationIcon(stationMarker, className, size) {
+	const icon = stationMarker.options.icon;
+
+	if (icon.options.className == className && icon.options.iconSize?.[0] == size) return;
+
+	const el = stationMarker.getElement();
+
+	if (el) {
+		el.classList.remove(...icon.options.className.split(" ").filter(Boolean));
+		el.classList.add(...className.split(" ").filter(Boolean));
+		// 同 Leaflet 的 _setIconStyles：寬高等於 iconSize，錨點在中心
+		el.style.width = el.style.height = `${size}px`;
+		el.style.marginLeft = el.style.marginTop = `${-size / 2}px`;
+	}
+
+	// 之後重新加到地圖（例如縮放、重新顯示）時會照這些選項建圖示
+	icon.options.className = className;
+	icon.options.iconSize = [size, size];
+}
+
+// 測站最近離線時間：每秒都會更新，放在記憶體，每分鐘和關閉前才寫回 localStorage
+const stationOfflineTime = JSON.parse(localStorage.stationtime ?? "{}");
+const saveStationOfflineTime = () => localStorage.stationtime = JSON.stringify(stationOfflineTime);
+setInterval(saveStationOfflineTime, 60_000);
+window.addEventListener("beforeunload", saveStationOfflineTime);
+
 function handler(Json) {
 	// console.log(Json);
 	// console.log(station);
@@ -1565,7 +1595,10 @@ function handler(Json) {
 	// Station 的 key 是 UUID（L-704-11E1600），即時資料的 key 是測站 ID（11E1600），需取 ID 比對
 	const Station_rm = (Json_rm) => Object.keys(Station).filter(key => !(key.split("-")[2] in Json_rm));
 
-	const removed = Json.station ? Station_rm(Json.station) : Station_rm(Json);
+	// 沒資料、但下面馬上會以「無資料」加回的測站不用移除，不然每秒都在刪掉重建圖示
+	const showAsNa = (key) => (station[key]?.work || replay != 0) && (!setting["sleep.mode"] || replay != 0) && !rts_remove_eew;
+
+	const removed = (Json.station ? Station_rm(Json.station) : Station_rm(Json)).filter((key) => !showAsNa(key));
 
 	for (const removedKey of removed) {
 		Station[removedKey].remove();
@@ -1581,10 +1614,7 @@ function handler(Json) {
 		}
 	}
 
-	if (localStorage.stationtime == undefined)
-		localStorage.stationtime = JSON.stringify({});
-
-	const station_time_json = JSON.parse(localStorage.stationtime);
+	const station_time_json = stationOfflineTime;
 	let max_intensity = -1;
 	let stationnowindex = 0;
 	let target_count = 0;
@@ -1825,15 +1855,24 @@ function handler(Json) {
 					});
 
 			if (Station[keys[index]]) {
-				if (Station[keys[index]].getIcon()?.options?.className != `map-intensity-icon rt-icon ${level_class}`)
-					Station[keys[index]].setIcon(L.divIcon({
-						iconSize  : [size, size],
-						className : `map-intensity-icon rt-icon ${level_class}`,
-					}));
+				const stationMarker = Station[keys[index]];
+				const zIndex = 2000 + ~~(amount * 10) + intensity * 500;
 
-				Station[keys[index]]
-					.setZIndexOffset(2000 + ~~(amount * 10) + intensity * 500)
-					.setTooltipContent(station_tooltip);
+				updateStationIcon(stationMarker, `map-intensity-icon rt-icon ${level_class}`, size);
+
+				// 測站有資料／沒資料切換時，提示框樣式也要跟著換
+				const tooltip = stationMarker.getTooltip();
+				const tooltipClass = current_data == undefined ? "rt-station-tooltip-na" : "rt-station-tooltip";
+
+				if (tooltip && tooltip.options.className != tooltipClass) {
+					tooltip.getElement()?.classList.replace(tooltip.options.className, tooltipClass);
+					tooltip.options.className = tooltipClass;
+				}
+
+				// 沒變就不設，setZIndexOffset 每次都會重算位置
+				if (stationMarker.options.zIndexOffset !== zIndex) stationMarker.setZIndexOffset(zIndex);
+
+				stationMarker.setTooltipContent(station_tooltip);
 			}
 		}
 
@@ -1962,8 +2001,6 @@ function handler(Json) {
 			MAXPGA.time = now;
 		}
 	}
-
-	localStorage.stationtime = JSON.stringify(station_time_json);
 
 	if (target_count != 0) {
 		let level = 0;
@@ -6103,8 +6140,13 @@ function NOW() {
 	return new Date(realNow());
 }
 
+// 台灣沒有日光節約時間，固定 UTC+8；不用 toLocaleString，它每次都要建時區格式器，每秒對每個測站呼叫很耗 CPU
+const TAIPEI_OFFSET_MS = 8 * 3_600_000;
+
+/** 回傳一個本機時區欄位等於台北時間的 Date（給 .format 顯示用，精確到秒） */
 function timeconvert(time) {
-	return new Date(time.toLocaleString("en-US", { hourCycle: "h23", timeZone: "Asia/Taipei" }));
+	const t = new Date(time.getTime() + TAIPEI_OFFSET_MS);
+	return new Date(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate(), t.getUTCHours(), t.getUTCMinutes(), t.getUTCSeconds());
 }
 
 function globalgc() {
