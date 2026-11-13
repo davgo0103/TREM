@@ -13,7 +13,8 @@ permissions:
 
 jobs:
   Linux_x64:
-    runs-on: ubuntu-latest
+    # 固定 24.04：ubuntu-latest 換成 26.04 後內建 rpm 6.0，electron-builder 的 fpm 打包 rpm 會失敗
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: TREM.Electron
