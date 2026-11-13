@@ -94,11 +94,50 @@ let RTSWindow = TREM.Window.get("rts");
  */
 let IntensityWindow = TREM.Window.get("Intensity");
 
-TREM.setLoginItemSettings({
-	openAtLogin : TREM.Configuration.data["windows.startup"],
-	name        : "TREMV",
-	args        : TREM.Configuration.data["windows.minimize"] ? ["--start"] : [],
-});
+// 開機自動啟動：Windows 寫登錄檔、macOS 加入登入項目、Linux 放 ~/.config/autostart 啟動檔（Electron 在 Linux 不支援）
+// 開發模式不註冊：執行檔是 node_modules 裡的 electron.exe，會蓋掉安裝版的開機項目，開機時只會開出空白的 Electron
+function applyLoginItem(config = TREM.Configuration.data) {
+	if (!TREM.isPackaged) return;
+
+	const openAtLogin = config["windows.startup"];
+	const args = config["windows.minimize"] ? ["--start"] : [];
+
+	if (process.platform == "linux") {
+		const file = path.join(os.homedir(), ".config", "autostart", "tremv.desktop");
+
+		try {
+			if (openAtLogin) {
+				// AppImage 的 execPath 是每次掛載的暫存路徑，要用 APPIMAGE 指向的檔案本身
+				const exec = [`"${process.env.APPIMAGE ?? process.execPath}"`, ...args].join(" ");
+				fs.mkdirSync(path.dirname(file), { recursive: true });
+				fs.writeFileSync(file, [
+					"[Desktop Entry]",
+					"Type=Application",
+					"Name=TREMV",
+					`Exec=${exec}`,
+					"X-GNOME-Autostart-enabled=true",
+					"",
+				].join("\n"));
+			} else {
+				fs.rmSync(file, { force: true });
+			}
+		} catch (err) {
+			logger.error("autostart:", err);
+		}
+
+		return;
+	}
+
+	TREM.setLoginItemSettings({ openAtLogin, name: "TREMV", args });
+
+	// 舊版切換設定時誤用「TREM」名稱註冊；只清掉指向本程式的那筆，原版 TREM 的開機項目不能動
+	if (process.platform == "win32")
+		for (const item of TREM.getLoginItemSettings().launchItems ?? [])
+			if (item.name == "TREM" && item.path?.toLowerCase() == process.execPath.toLowerCase())
+				TREM.setLoginItemSettings({ openAtLogin: false, name: "TREM" });
+}
+
+applyLoginItem();
 
 
 function createWindow() {
@@ -783,21 +822,10 @@ ipcMain.on("config:value", (event, key, value) => {
 			break;
 		}
 
-		case "windows.startup": {
-			TREM.setLoginItemSettings({
-				openAtLogin : value,
-				name        : "TREM",
-				args        : TREM.Configuration.data["windows.minimize"] ? ["--start"] : [],
-			});
-			break;
-		}
-
+		case "windows.startup":
 		case "windows.minimize": {
-			TREM.setLoginItemSettings({
-				openAtLogin : TREM.Configuration.data["windows.startup"],
-				name        : "TREM",
-				args        : value ? ["--start"] : [],
-			});
+			// 這裡還沒寫入設定，要帶新值進去
+			applyLoginItem({ ...TREM.Configuration.data, [key]: value });
 			break;
 		}
 
